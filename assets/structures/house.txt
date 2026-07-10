@@ -1,0 +1,55 @@
+# Village house: plank walls with wood corners, a real door, a chest
+# and a furnace inside. Placed by village generation (cell: 0).
+cell: 0
+ybase: -1
+palette:
+W = wood
+P = planks
+T = torch
+C = chest_s
+F = furnace_s
+D = door_s
+. = air
+_ = keep
+layers:
+PPPPP
+PPPPP
+PPPPP
+PPPPP
+PPPPP
+PPPPP
+---
+WPPPW
+PC.FP
+P...P
+P...P
+PT..P
+WPDPW
+---
+WPPPW
+P...P
+P...P
+P...P
+P...P
+WP_PW
+---
+WPPPW
+P...P
+P...P
+P...P
+P...P
+WPPPW
+---
+WWWWW
+WWWWW
+WWWWW
+WWWWW
+WWWWW
+WWWWW
+---
+_____
+_WWW_
+_WWW_
+_WWW_
+_WWW_
+_____

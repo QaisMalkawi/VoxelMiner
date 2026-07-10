@@ -1,0 +1,16 @@
+# Tiny campsite: log seats around a fire.
+cell: 140
+chance: 0.18
+biomes: plains savanna forest
+ybase: 0
+maxslope: 2
+palette:
+W = wood
+T = torch
+_ = keep
+layers:
+_____
+_W_W_
+__T__
+_W_W_
+_____

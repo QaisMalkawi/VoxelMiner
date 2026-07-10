@@ -1,0 +1,43 @@
+# Stilted swamp hut with a door and a torch.
+cell: 200
+chance: 0.3
+biomes: swamp
+ybase: 0
+maxslope: 3
+palette:
+W = wood
+P = planks
+T = torch
+D = door_s
+. = air
+_ = keep
+layers:
+W___W
+_____
+_____
+_____
+W___W
+---
+PPPPP
+PPPPP
+PPPPP
+PPPPP
+PPPPP
+---
+PPPPP
+PT..P
+P...P
+P...P
+PPDPP
+---
+PPPPP
+P...P
+P...P
+P...P
+PP_PP
+---
+WWWWW
+WWWWW
+WWWWW
+WWWWW
+WWWWW

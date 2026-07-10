@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "VoxelMiner": {
+      "commandName": "Project"
+    },
+    "Map": {
+      "commandName": "Project",
+      "commandLineArgs": "-- --map"
+    }
+  }
+}

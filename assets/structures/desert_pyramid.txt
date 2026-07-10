@@ -1,0 +1,92 @@
+# Stepped sand pyramid hiding a small chamber with a chest.
+cell: 260
+chance: 0.3
+biomes: desert
+ybase: -1
+maxslope: 4
+palette:
+A = sand
+C = chest_s
+T = torch
+. = air
+_ = keep
+layers:
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+---
+AAAAAAAAA
+A.......A
+A..T....A
+A.......A
+A...C...A
+A.......A
+A.......A
+A.......A
+AAAA.AAAA
+---
+AAAAAAAAA
+A.......A
+A.......A
+A.......A
+A.......A
+A.......A
+A.......A
+A.......A
+AAAA.AAAA
+---
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+AAAAAAAAA
+---
+_________
+_AAAAAAA_
+_AAAAAAA_
+_AAAAAAA_
+_AAAAAAA_
+_AAAAAAA_
+_AAAAAAA_
+_AAAAAAA_
+_________
+---
+_________
+_________
+__AAAAA__
+__AAAAA__
+__AAAAA__
+__AAAAA__
+__AAAAA__
+_________
+_________
+---
+_________
+_________
+_________
+___AAA___
+___AAA___
+___AAA___
+_________
+_________
+_________
+---
+_________
+_________
+_________
+_________
+____A____
+_________
+_________
+_________
+_________
