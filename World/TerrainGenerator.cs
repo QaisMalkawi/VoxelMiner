@@ -154,6 +154,9 @@ public sealed class TerrainGenerator
         double jh = (Noise.Noise2(gx * ClimateJitterFreq + 6000, gz * ClimateJitterFreq + 6000) - 0.5) * ClimateJitter;
         double temperature = Noise.Noise2(gx * ClimateFreq + 1000, gz * ClimateFreq + 1000) + jt;
         double humidity = Noise.Noise2(gx * ClimateFreq + 2000, gz * ClimateFreq + 2000) + jh;
+        // altitude cools the climate: highlands trend toward tundra/snow and
+        // deserts only form in the lowlands
+        temperature -= Math.Max(0, h - (PlainsBase + 10)) * 0.006;
 
         if (mountain > 0.5 + jt * 0.6) // jitter raggedises the treeline too
             return h >= SnowHeight || temperature < 0.4 ? Biome.SnowyMountains : Biome.Mountains;
