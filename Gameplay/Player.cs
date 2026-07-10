@@ -10,6 +10,7 @@ public struct MoveInput
 {
     public float Forward, Strafe;
     public bool Jump, Sprint, Descend; // Descend: Shift while flying (creative)
+    public bool Sneak;                 // Shift on the ground: crouch/sneak
 }
 
 /// First-person player: position, look angles, AABB physics against the
@@ -23,6 +24,7 @@ public sealed class Player
     const float JumpSpeed = 8.6f;
     const float WalkSpeed = 5.2f;
     const float SprintSpeed = 8.0f;
+    const float SneakSpeed = 1.6f;   // ~30% of walk, Minecraft's sneak ratio
     const float LookSensitivity = 0.0024f;
     const float MaxPitch = 1.55f;
     const float RespawnY = -20f;
@@ -31,6 +33,8 @@ public sealed class Player
     public const float Width = 0.3f; // half-extent
     public const float Height = 1.8f;
     public const float Eye = 1.62f;
+    const float CrouchEye = 1.32f;   // camera height while sneaking
+    const float EyeLerpRate = 16f;   // crouch/stand camera transition speed
 
     const float SwimUpSpeed = 4.5f;
     const float SwimUpAccel = 30f;
@@ -71,6 +75,7 @@ public sealed class Player
     public bool OnGround;
     public bool InWater { get; private set; }
     public bool Flying;                          // creative only; forced off in survival
+    public bool Sneaking { get; private set; }
 
     public float Health { get; private set; } = MaxHealth;
     public float Hunger { get; private set; } = MaxHunger;
@@ -84,8 +89,9 @@ public sealed class Player
     public bool JustDied { get; private set; }
 
     float _drownTimer, _foodTimer;
+    float _eyeHeight = Eye;
 
-    public Vector3 EyePos => Pos + new Vector3(0, Eye, 0);
+    public Vector3 EyePos => Pos + new Vector3(0, _eyeHeight, 0);
 
     public Vector3 ViewDir => new(
         -MathF.Cos(Pitch) * MathF.Sin(Yaw),
@@ -152,11 +158,16 @@ public sealed class Player
         if (mode == GameMode.Survival) Flying = false;
 
         // Minecraft blocks sprinting at 3 drumsticks or less
-        bool sprinting = input.Sprint && (mode != GameMode.Survival || Hunger > SprintMinHunger);
+        Sneaking = input.Sneak && !Flying;
+        bool sprinting = input.Sprint && !Sneaking && (mode != GameMode.Survival || Hunger > SprintMinHunger);
+
+        // camera dips toward crouch height and eases back up on standing
+        float targetEye = Sneaking ? CrouchEye : Eye;
+        _eyeHeight += (targetEye - _eyeHeight) * MathF.Min(1f, dt * EyeLerpRate);
 
         InWater = WaterAt(world, 0.1f) || WaterAt(world, 1.0f);
         float speed = Flying ? FlySpeed * (mode == GameMode.Spectator ? SpectatorMultiplier : 1)
-                    : (sprinting ? SprintSpeed : WalkSpeed) * (InWater ? WaterSpeedFactor : 1f);
+                    : (sprinting ? SprintSpeed : Sneaking ? SneakSpeed : WalkSpeed) * (InWater ? WaterSpeedFactor : 1f);
         float len = MathF.Max(MathF.Sqrt(input.Forward * input.Forward + input.Strafe * input.Strafe), 1f);
         float sy = MathF.Sin(Yaw), cy = MathF.Cos(Yaw);
         Vel.X = (input.Forward / len * -sy + input.Strafe / len * cy) * speed;
@@ -366,10 +377,27 @@ public sealed class Player
     bool Collides(GameWorld world, Vector3 p, GameMode mode) =>
         mode != GameMode.Spectator && VisitBoxes(world, p);
 
+    const float SneakEdgeStep = 0.05f; // granularity of the sneak ledge clamp
+
     void ResolveHorizontal(GameWorld world, float dt, GameMode mode, bool axisX)
     {
         float vel = axisX ? Vel.X : Vel.Z;
-        if (axisX) Pos.X += vel * dt; else Pos.Z += vel * dt;
+        float disp = vel * dt;
+
+        // Sneaking on the ground refuses to walk off ledges (Minecraft edge
+        // protection): shrink the displacement until something — ground within
+        // step reach below, or a wall we'd bump into anyway — still overlaps
+        // the destination AABB dropped by StepHeight.
+        if (disp != 0 && Sneaking && OnGround && !InWater && !Flying && mode != GameMode.Spectator)
+        {
+            while (disp != 0 && !VisitBoxes(world, new Vector3(
+                Pos.X + (axisX ? disp : 0), Pos.Y - StepHeight, Pos.Z + (axisX ? 0 : disp))))
+            {
+                disp = MathF.Abs(disp) <= SneakEdgeStep ? 0 : disp - MathF.Sign(disp) * SneakEdgeStep;
+            }
+        }
+
+        if (axisX) Pos.X += disp; else Pos.Z += disp;
         if (mode == GameMode.Spectator || vel == 0) return;
 
         float limit = vel > 0 ? float.PositiveInfinity : float.NegativeInfinity;

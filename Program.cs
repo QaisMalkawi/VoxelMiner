@@ -717,12 +717,14 @@ sealed class Game : IDisposable
         {
             int substeps = dt > 0.02f ? 2 : 1;
             bool shift = _keys.Contains(Key.ShiftLeft) || _keys.Contains(Key.ShiftRight);
+            bool ctrl = _keys.Contains(Key.ControlLeft) || _keys.Contains(Key.ControlRight);
             var move = new MoveInput
             {
                 Forward = (_keys.Contains(Key.W) ? 1 : 0) - (_keys.Contains(Key.S) ? 1 : 0),
                 Strafe = (_keys.Contains(Key.D) ? 1 : 0) - (_keys.Contains(Key.A) ? 1 : 0),
                 Jump = _keys.Contains(Key.Space),
-                Sprint = shift,
+                Sprint = ctrl,
+                Sneak = shift,   // Minecraft layout: Shift sneaks, Ctrl sprints
                 Descend = shift, // Shift doubles as "fly down" in creative flight
             };
             if (_boats.Ridden != null)
@@ -1328,6 +1330,16 @@ sealed class Game : IDisposable
         starver.AddExhaustion(25 * 4f); // 5 saturation + all 20 food points
         for (int i = 0; i < 540; i++) starver.Step(1f / 60f, still, _world, GameMode.Survival);
         Report("starvation", starver.Hunger <= 0f && starver.Health <= Player.MaxHealth - 2);
+
+        // sneaking: crouch-walking toward the platform edge slows down and
+        // stops at the ledge (with the camera lowered) instead of falling off
+        var sneaker = new Player { Pos = new Vector3(250.5f, 59.02f, 250.5f) };
+        var sneakMove = new MoveInput { Forward = 1, Sneak = true };
+        for (int i = 0; i < 300; i++) sneaker.Step(1f / 60f, sneakMove, _world, GameMode.Survival);
+        bool heldEdge = sneaker.OnGround && MathF.Abs(sneaker.Pos.Y - 59f) < 0.05f
+            && sneaker.Pos.Z < 249.6f; // moved to the ledge but no further
+        bool crouchedEye = sneaker.EyePos.Y - sneaker.Pos.Y < 1.4f;
+        Report("sneak-edge", heldEdge && crouchedEye);
 
         // item drops: one spawned above the rig platform falls, then a
         // nearby player magnetizes and collects it into their inventory

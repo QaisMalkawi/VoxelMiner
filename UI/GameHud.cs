@@ -673,7 +673,8 @@ public sealed class GameHud
         {
             "W A S D          Move",
             "Space            Jump",
-            "Shift            Sprint",
+            "Shift            Sneak / fly down",
+            "Ctrl             Sprint",
             "Hold Left Click  Mine block",
             "Right Click      Place block / use door, chest...",
             "1-9 / Wheel      Select item",
