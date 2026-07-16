@@ -114,6 +114,7 @@ sealed class Game : IDisposable
 
     GameWorld _world;
     WorldRenderer _worldRenderer;
+    readonly Frustum _frustum = new();
     Player _player;
     Inventory _inventory;
     BlockInteraction _interaction;
