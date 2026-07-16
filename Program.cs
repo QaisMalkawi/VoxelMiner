@@ -50,7 +50,45 @@ enum GameState { Paused, Playing, InventoryOpen, MapOpen, Dead, ChestOpen, Furna
 sealed class Game : IDisposable
 {
     static readonly Vector4 SkyColor = new(0.529f, 0.808f, 0.922f, 1f);
+    static readonly Vector4 NightSkyColor = new(0.015f, 0.03f, 0.075f, 1f);
+    static readonly Vector4 SunsetColor = new(0.93f, 0.48f, 0.25f, 1f);
     static readonly Vector4 WaterFogColor = new(0.10f, 0.24f, 0.45f, 1f);
+
+    // ------------------------------------------------------------- day/night
+    // _timeOfDay wraps 0..1 over one DayLength: 0 = sunrise, 0.25 = noon,
+    // 0.5 = sunset, 0.75 = midnight. Daylight scales the sky-light band in
+    // the world shader (torch light is unaffected), with a moonlight floor
+    // so nights stay navigable.
+    const float DayLength = 600f; // seconds per full cycle
+    const float NewWorldTime = 0.05f; // fresh worlds start just after sunrise
+    float _timeOfDay = NewWorldTime;
+
+    float SunElevation => MathF.Sin(MathF.Tau * _timeOfDay);
+
+    float Daylight
+    {
+        get
+        {
+            float d = Math.Clamp((SunElevation + 0.05f) / 0.3f, 0f, 1f);
+            d = d * d * (3 - 2 * d);
+            return 0.14f + 0.86f * d;
+        }
+    }
+
+    /// Sky/fog color for the current time: night blue to day blue, blended
+    /// through an orange band while the sun crosses the horizon.
+    Vector4 CurrentSkyColor
+    {
+        get
+        {
+            float e = SunElevation;
+            float blend = Math.Clamp((e + 0.15f) / 0.35f, 0f, 1f);
+            blend = blend * blend * (3 - 2 * blend);
+            var sky = Vector4.Lerp(NightSkyColor, SkyColor, blend);
+            float horizon = MathF.Exp(-MathF.Pow((e - 0.02f) / 0.14f, 2));
+            return Vector4.Lerp(sky, SunsetColor, horizon * 0.45f);
+        }
+    }
 
     // Fog tracks the render distance: chunks stream in a square of
     // ±ViewRadius, so the nearest unloaded edge sits ViewRadius*ChunkSize
@@ -236,11 +274,13 @@ sealed class Game : IDisposable
         {
             WorldSave.Apply(save, _world, _fluids, _blockEntities, _player, _inventory, _boats, _drops);
             SetMode(save.Mode);
+            _timeOfDay = save.TimeOfDay;
             ShowToast($"Loaded '{name}' (F5 saves, auto-saves on exit)");
         }
         else
         {
             SetMode(GameMode.Survival); // fresh worlds always begin in survival
+            _timeOfDay = NewWorldTime;
             _player.Spawn(_world);
         }
         // build the starting area synchronously so the player doesn't fall through
@@ -686,7 +726,7 @@ sealed class Game : IDisposable
         {
             if (_player.Health <= 0) _player.Spawn(_world); // never save a corpse
             WorldSave.Save(_savePath, _worldName, _world, _fluids, _blockEntities,
-                _player, _inventory, _mode, _boats, _drops);
+                _player, _inventory, _mode, _boats, _drops, _timeOfDay);
             if (!silent) ShowToast($"Saved '{_worldName}'");
         }
         catch (Exception e)
@@ -753,6 +793,7 @@ sealed class Game : IDisposable
             _drops.Update(dt, _player, _inventory);
             _interaction.Update(dt, _mineHeld, _placeHeld);
             _fluids.Update(dt);
+            _timeOfDay = (_timeOfDay + dt / DayLength) % 1f;
         }
         // furnaces keep smelting while their (or a chest's) panel is open
         if (_state is GameState.Playing or GameState.ChestOpen or GameState.FurnaceOpen)
@@ -779,10 +820,11 @@ sealed class Game : IDisposable
             var menuUbo = new GlobalUbo
             {
                 ViewProj = Matrix4x4.Identity,
-                CamPos = Vector4.Zero,
+                CamPos = new Vector4(0, 0, 0, 1),
                 FogColor = SkyColor,
                 FogParams = new Vector4(1, 2, 0, 1),
             };
+            _renderer.EntityLight = 1f;
             if (!_renderer.BeginFrame(in menuUbo, out _)) return;
             DrawHud(w, h);
             _renderer.DrawHud(_hud.Batch, w, h);
@@ -798,39 +840,46 @@ sealed class Game : IDisposable
         proj.M22 *= -1; // GL/D3D clip-space Y is up; Vulkan's is down
         bool underwater = _world.GetBlock(
             (int)MathF.Floor(eye.X), (int)MathF.Floor(eye.Y), (int)MathF.Floor(eye.Z)) == BlockId.Water;
+        float daylight = Daylight;
+        var sky = CurrentSkyColor;
+        var waterFog = WaterFogColor * new Vector4(daylight, daylight, daylight, 1);
         var ubo = new GlobalUbo
         {
             ViewProj = view * proj,
-            CamPos = new Vector4(eye, 1),
-            FogColor = underwater ? WaterFogColor : SkyColor,
+            // camPos.w carries the time-of-day daylight factor for the
+            // shader's sky-light band
+            CamPos = new Vector4(eye, daylight),
+            FogColor = underwater ? waterFog : sky,
             // world light is baked into vertex color now; keep a small camera
             // glow (z) so pitch-black caves stay navigable. Underwater fog is
             // murky-water visibility, not render distance — it stays short.
             FogParams = underwater ? new Vector4(4, 28, 0.25f, 1.0f) : new Vector4(FogNear, FogFar, 0.25f, 1.0f),
         };
+        _renderer.EntityLight = daylight; // animals/boats/drops dim with the night
+        _frustum.Set(in ubo.ViewProj); // shared by chunk, entity, and particle culling
         if (!_renderer.BeginFrame(in ubo, out _)) return;
 
-        _worldRenderer.Draw(in ubo.ViewProj);
+        _worldRenderer.Draw(_frustum);
 
         if (_state == GameState.Playing && _interaction.Highlighted is { } hit)
         {
             // outline hugs the block's selection shape (slab half, door panel...)
-            var (bMin, bMax) = BlockRegistry.SelectionBounds(_world.GetBlock(hit.X, hit.Y, hit.Z));
+            var (bMin, bMax) = _world.SelectionBoundsAt(hit.X, hit.Y, hit.Z);
             var size = (bMax - bMin) * 1.002f;
             var model = Matrix4x4.CreateScale(size)
                       * Matrix4x4.CreateTranslation(new Vector3(hit.X, hit.Y, hit.Z) + bMin - new Vector3(0.001f));
             _renderer.DrawLineMesh(_lineCube, model, new Vector4(0, 0, 0, 0.6f), _white);
         }
 
-        AnimalRenderer.Draw(_renderer, _animalMeshes, _animalTex, _animals.Animals);
-        BoatRenderer.Draw(_renderer, _cube, _white, _boats.All);
-        DropRenderer.Draw(_renderer, _blockCubes, _atlas, _drops.All);
-        _particles.Draw(_renderer, _cube, _white);
+        AnimalRenderer.Draw(_renderer, _animalMeshes, _animalTex, _animals.Animals, _frustum);
+        BoatRenderer.Draw(_renderer, _cube, _white, _boats.All, _frustum);
+        DropRenderer.Draw(_renderer, _blockCubes, _atlas, _drops.All, _frustum);
+        _particles.Draw(_renderer, _cube, _white, _frustum);
         _worldRenderer.DrawWater(); // translucent pass after all opaque geometry
 
         if (_interaction.MineTarget is { } target && _interaction.MineProgress > 0)
         {
-            var (bMin, bMax) = BlockRegistry.SelectionBounds(_world.GetBlock(target.X, target.Y, target.Z));
+            var (bMin, bMax) = _world.SelectionBoundsAt(target.X, target.Y, target.Z);
             var model = Matrix4x4.CreateScale((bMax - bMin) * 1.004f)
                       * Matrix4x4.CreateTranslation(new Vector3(target.X, target.Y, target.Z) + (bMin + bMax) * 0.5f);
             _renderer.DrawMesh(_cube, model, new Vector4(0, 0, 0, (float)_interaction.MineProgress * 0.55f), false, _white);

@@ -10,10 +10,11 @@ using VoxelMiner.Entities;
 /// a head part carries the face tile (eyes, snout).
 public static class AnimalRenderer
 {
-    public static void Draw(Renderer renderer, CubeMeshCache meshes, TextureHandle animalTexture, IEnumerable<Animal> animals)
+    public static void Draw(Renderer renderer, CubeMeshCache meshes, TextureHandle animalTexture, IEnumerable<Animal> animals, Frustum frustum)
     {
         foreach (var animal in animals)
         {
+            if (!frustum.SphereVisible(animal.Pos, 2f)) continue; // generous: covers every part + swing
             // row-vector CreateRotationY maps +X → (cos, 0, -sin), matching the
             // yaw convention in Animal (TargetYaw = atan2(-dz, dx))
             var baseTransform = Matrix4x4.CreateScale(animal.Def.Scale)

@@ -100,5 +100,53 @@ public sealed class GameWorld
 
     public bool IsSolidAt(int gx, int gy, int gz) => BlockRegistry.IsSolid(GetBlock(gx, gy, gz));
 
+    // --------------------------------------------------------- shape context
+
+    /// 4-bit fence connection mask for a cell (bit = facing 0..3 / N,E,S,W).
+    public int FenceMaskAt(int gx, int gy, int gz)
+    {
+        int mask = 0;
+        for (int f = 0; f < 4; f++)
+        {
+            var (dx, dz) = BlockRegistry.FacingDir(f);
+            if (BlockRegistry.FenceConnects(GetBlock(gx + dx, gy, gz + dz))) mask |= 1 << f;
+        }
+        return mask;
+    }
+
+    /// Collision boxes for a cell, honouring neighbour-dependent shapes
+    /// (fence arms). Everything else defers to the static registry.
+    public Box[] CollisionBoxesAt(int gx, int gy, int gz)
+    {
+        int id = GetBlock(gx, gy, gz);
+        return BlockRegistry.ShapeOf(id) == BlockShape.Fence
+            ? BlockRegistry.FenceCollisionBoxes(FenceMaskAt(gx, gy, gz))
+            : BlockRegistry.CollisionBoxes(id);
+    }
+
+    /// Selection boxes for a cell (what the crosshair ray must strike).
+    public Box[] SelectionBoxesAt(int gx, int gy, int gz)
+    {
+        int id = GetBlock(gx, gy, gz);
+        return BlockRegistry.ShapeOf(id) == BlockShape.Fence
+            ? BlockRegistry.FenceMeshBoxes(FenceMaskAt(gx, gy, gz))
+            : BlockRegistry.SelectionBoxes(id);
+    }
+
+    /// Union of a cell's selection boxes (highlight outline bounds).
+    public (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) SelectionBoundsAt(int gx, int gy, int gz)
+    {
+        int id = GetBlock(gx, gy, gz);
+        if (BlockRegistry.ShapeOf(id) != BlockShape.Fence) return BlockRegistry.SelectionBounds(id);
+        var mn = new System.Numerics.Vector3(float.PositiveInfinity);
+        var mx = new System.Numerics.Vector3(float.NegativeInfinity);
+        foreach (var b in BlockRegistry.FenceMeshBoxes(FenceMaskAt(gx, gy, gz)))
+        {
+            mn = System.Numerics.Vector3.Min(mn, new(b.X0, b.Y0, b.Z0));
+            mx = System.Numerics.Vector3.Max(mx, new(b.X1, b.Y1, b.Z1));
+        }
+        return (mn, mx);
+    }
+
     static int FloorDiv(int a, int b) => (int)Math.Floor((double)a / b);
 }

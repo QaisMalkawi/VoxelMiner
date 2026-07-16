@@ -148,7 +148,7 @@ public sealed class BlockInteraction
                 return new RayHit(x, y, z, fx, fy, fz, o + d * t);
             // partial shapes (stairs, slabs, torches, plants...): the ray must
             // strike the visible geometry, not just enter the cell
-            var boxHit = RayBoxes(o, d, x, y, z, BlockRegistry.SelectionBoxes(id), maxDist, fx, fy, fz);
+            var boxHit = RayBoxes(o, d, x, y, z, _world.SelectionBoxesAt(x, y, z), maxDist, fx, fy, fz);
             if (boxHit != null) return boxHit;
         }
         return null;

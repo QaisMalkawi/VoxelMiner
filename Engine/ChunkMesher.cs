@@ -5,7 +5,11 @@ using static VoxelMiner.Core.Constants;
 
 /// Builds merged geometry for one chunk: hidden-face culling, per-face
 /// directional shade, corner ambient occlusion, and smooth sky/torch light
-/// baked as vertex color (warm tint for torch light, neutral for sky).
+/// baked per vertex. The vertex "color" channel carries the two light bands
+/// separately — r = sky-lit intensity, g = torch-lit intensity (both already
+/// shaded/AO'd) — and the world shader combines them at draw time, scaling
+/// the sky band by the time-of-day daylight uniform so torches stay warm and
+/// bright through the night.
 /// Water goes into a separate translucent submesh with a Minecraft-style
 /// surface: height falls off with distance from its source/falling column,
 /// a cell under another water cell is forced to full height, and shared
@@ -14,7 +18,7 @@ using static VoxelMiner.Core.Constants;
 /// Vertex layout: pos3, uv2, color3.
 public sealed class ChunkMesher
 {
-    public const int AtlasTiles = 32;
+    public const int AtlasTiles = 44;
     public const int TorchTile = 14;
     public const int WaterTile = 15;
     public const int TallGrassTile = 16;
@@ -73,10 +77,10 @@ public sealed class ChunkMesher
                         var (dir, faceIdx, corners) = Faces[f];
                         int nb = _world.GetBlock(gx + dir[0], y + dir[1], gz + dir[2]);
                         if (BlockRegistry.IsOpaque(nb)) continue;
-                        // two leaf blocks would emit coplanar quads at their shared
-                        // face — identical texture, but they'd z-fight; cull like
-                        // water does against water
-                        if (b == Core.BlockId.Leaves && nb == Core.BlockId.Leaves) continue;
+                        // two leaf (or glass) blocks would emit coplanar quads at
+                        // their shared face — identical texture, but they'd
+                        // z-fight; cull like water does against water
+                        if (b == nb && (b == Core.BlockId.Leaves || b == Core.BlockId.Glass)) continue;
                         // furnaces carry a 4th tile for their front face
                         int tile = def.Tiles.Length > 3 && f == FaceOfFacing(def.Facing) ? def.Tiles[3] : def.Tiles[faceIdx];
                         uint baseIndex = (uint)(verts.Count / 8);
@@ -244,14 +248,39 @@ public sealed class ChunkMesher
     /// light, so the cell always has a valid value).
     void AddShaped(List<float> verts, List<uint> indices, int b, BlockDef def, int gx, int y, int gz, int lx, int lz)
     {
-        var boxes = BlockRegistry.CollisionBoxes(b);
         var (r, g, bl) = CombineLight(_world.Lighting.GetSky(gx, y, gz), _world.Lighting.GetBlockLight(gx, y, gz));
+        if (def.Shape == BlockShape.Fence)
+        {
+            AddFence(verts, indices, def, gx, y, gz, lx, lz, r, g, bl);
+            return;
+        }
+        var boxes = BlockRegistry.CollisionBoxes(b);
         for (int i = 0; i < boxes.Length; i++)
         {
             // a stair's upper box sits on the lower slab; its bottom face would
             // z-fight with the slab's top face, so drop it
             int skipMask = def.Shape == BlockShape.Stairs && i == 1 ? 1 << 2 : 0;
             AddBox(verts, indices, def, boxes[i], gx, y, gz, lx, lz, r, g, bl, skipMask);
+        }
+    }
+
+    /// Fence: center post plus two rails toward each connected neighbour.
+    /// A rail's outer end face is dropped when it meets another fence — the
+    /// neighbour's rail ends on the same plane and the faces would z-fight.
+    void AddFence(List<float> verts, List<uint> indices, BlockDef def,
+        int gx, int y, int gz, int lx, int lz, float r, float g, float bl)
+    {
+        var boxes = BlockRegistry.FenceMeshBoxes(_world.FenceMaskAt(gx, y, gz));
+        AddBox(verts, indices, def, boxes[0], gx, y, gz, lx, lz, r, g, bl, 0); // post
+        int i = 1;
+        for (int f = 0; f < 4 && i < boxes.Length; f++)
+        {
+            var (dx, dz) = BlockRegistry.FacingDir(f);
+            int nb = _world.GetBlock(gx + dx, y, gz + dz);
+            if (!BlockRegistry.FenceConnects(nb)) continue;
+            int skipMask = BlockRegistry.ShapeOf(nb) == BlockShape.Fence ? 1 << FaceOfFacing(f) : 0;
+            AddBox(verts, indices, def, boxes[i++], gx, y, gz, lx, lz, r, g, bl, skipMask);
+            AddBox(verts, indices, def, boxes[i++], gx, y, gz, lx, lz, r, g, bl, skipMask);
         }
     }
 
@@ -366,20 +395,15 @@ public sealed class ChunkMesher
             blk += light.GetBlockLight(bx + s[0] + t[0], by + s[1] + t[1], bz + s[2] + t[2]);
             count++;
         }
-        var (r, g, b) = CombineLight(sky / count, blk / count);
         float l = shade * ao;
-        return (r * l, g * l, b * l);
+        return (Curve(sky / count) * l, Curve(blk / count) * l, 0);
     }
 
-    /// Maps sky/block light levels to an RGB multiplier. Sky light is neutral;
-    /// block light is warm, so torches tint their surroundings orange.
-    static (float R, float G, float B) CombineLight(float sky, float blk)
-    {
-        float cs = Curve(sky), cb = Curve(blk);
-        return (MathF.Max(cs, cb),
-                MathF.Max(cs, cb * 0.85f),
-                MathF.Max(cs, cb * 0.62f));
-    }
+    /// Encodes sky/block light levels into the two vertex light bands the
+    /// world shader combines (r = sky intensity, g = torch intensity). The
+    /// shader tints the torch band warm and scales the sky band by daylight.
+    static (float R, float G, float B) CombineLight(float sky, float blk) =>
+        (Curve(sky), Curve(blk), 0);
 
     static float Curve(float level) => 0.02f + 0.98f * MathF.Pow(level / MaxLight, 1.5f);
 }

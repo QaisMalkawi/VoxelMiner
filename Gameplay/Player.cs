@@ -360,7 +360,7 @@ public sealed class Player
         for (int x = cx0; x <= cx1; x++)
             for (int y = cy0; y <= cy1; y++)
                 for (int z = cz0; z <= cz1; z++)
-                    foreach (var b in BlockRegistry.CollisionBoxes(world.GetBlock(x, y, z)))
+                    foreach (var b in world.CollisionBoxesAt(x, y, z))
                     {
                         float wx0 = x + b.X0, wx1 = x + b.X1;
                         float wy0 = y + b.Y0, wy1 = y + b.Y1;

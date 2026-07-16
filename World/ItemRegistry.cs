@@ -40,6 +40,8 @@ public static class ItemRegistry
     public static readonly Recipe[] Recipes =
     {
         new((BlockId.Planks, 4),      new[] { (BlockId.Wood, 1) }),
+        new((BlockId.Planks, 4),      new[] { (BlockId.BirchWood, 1) }),
+        new((BlockId.Planks, 4),      new[] { (BlockId.SpruceWood, 1) }),
         new((ItemId.Stick, 4),        new[] { (BlockId.Planks, 2) }),
         new((ItemId.WoodPick, 1),     new[] { (BlockId.Planks, 3), (ItemId.Stick, 2) }),
         new((ItemId.StonePick, 1),    new[] { (BlockId.Stone, 3), (ItemId.Stick, 2) }),
@@ -59,6 +61,7 @@ public static class ItemRegistry
         new((BlockId.Trapdoor, 2),    new[] { (BlockId.Planks, 6) }),
         new((BlockId.Chest, 1),       new[] { (BlockId.Planks, 8) }),
         new((BlockId.Furnace, 1),     new[] { (BlockId.Stone, 8) }),
+        new((BlockId.Fence, 3),       new[] { (BlockId.Planks, 4), (ItemId.Stick, 2) }),
     };
 
     public static string NameOf(int id) =>
@@ -89,12 +92,16 @@ public static class Smelting
         new(ItemId.RawPigMeat, ItemId.CookedPigMeat, 10f),
         new(ItemId.RawSheepMeat, ItemId.CookedSheepMeat, 10f),
         new(ItemId.RawChickenMeat, ItemId.CookedChickenMeat, 10f),
+        new(BlockId.Sand, BlockId.Glass, 10f),
+        new(BlockId.RedSand, BlockId.Glass, 10f),
     };
 
     public static readonly Dictionary<int, float> FuelSeconds = new()
     {
         [BlockId.Coal] = 80f,
         [BlockId.Wood] = 15f,
+        [BlockId.BirchWood] = 15f,
+        [BlockId.SpruceWood] = 15f,
         [BlockId.Planks] = 15f,
         [ItemId.Stick] = 5f,
     };

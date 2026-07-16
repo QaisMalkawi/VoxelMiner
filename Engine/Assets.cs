@@ -55,7 +55,11 @@ public static class TextureGen
             ChestTopTile(tile), ChestSideTile(tile, front: false), ChestSideTile(tile, front: true),
             FurnaceTopTile(tile), FurnaceSideTile(tile, FurnaceFace.Side),
             FurnaceSideTile(tile, FurnaceFace.Front), FurnaceSideTile(tile, FurnaceFace.FrontLit),
-            SnowTileTex(tile), DryGrassTile(tile, top: true), DryGrassTile(tile, top: false) };
+            SnowTileTex(tile), DryGrassTile(tile, top: true), DryGrassTile(tile, top: false),
+            BirchTile(tile), SpruceTile(tile), CactusTileTex(tile), IceTileTex(tile),
+            RedSandTile(tile), TerracottaTile(tile, red: false), TerracottaTile(tile, red: true),
+            MyceliumTile(tile, top: true), MyceliumTile(tile, top: false),
+            MushroomCapTileTex(tile), MushroomStemTile(tile), GlassTileTex(tile) };
         int newW = width + generated.Length * tile;
         var pixels = new byte[newW * height * 4];
         for (int y = 0; y < height; y++)
@@ -294,6 +298,184 @@ public static class TextureGen
                         Math.Clamp(121 + v, 0, 255),
                         Math.Clamp(85 + v, 0, 255),
                         Math.Clamp(58 + v / 2, 0, 255));
+            }
+        return px;
+    }
+
+    /// Birch bark: pale cream with scattered dark horizontal scars.
+    static byte[] BirchTile(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 1409, y + 2203) * 16) - 8;
+                bool scar = Core.Noise.Hash2(x / 3 + 631, y + 1997) > 0.88;
+                if (scar) Put(px, size, x, y, 58 + v / 2, 56 + v / 2, 50);
+                else Put(px, size, x, y,
+                    Math.Clamp(216 + v, 0, 255), Math.Clamp(213 + v, 0, 255), Math.Clamp(202 + v, 0, 255));
+            }
+        return px;
+    }
+
+    /// Spruce bark: dark brown vertical striations.
+    static byte[] SpruceTile(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int strip = (int)(Core.Noise.Hash2(x + 811, 0) * 24) - 12;      // per-column tone
+                int v = (int)(Core.Noise.Hash2(x + 977, y + 3389) * 14) - 7;
+                Put(px, size, x, y,
+                    Math.Clamp(84 + strip + v, 0, 255),
+                    Math.Clamp(60 + strip + v, 0, 255),
+                    Math.Clamp(34 + strip / 2 + v / 2, 0, 255));
+            }
+        return px;
+    }
+
+    /// Cactus: green skin with darker vertical ribs and a lighter sheen.
+    static byte[] CactusTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 271, y + 4111) * 14) - 7;
+                bool rib = x % (size / 4) == 0;
+                int s = rib ? -26 : (x % (size / 4) == size / 8 ? 10 : 0);
+                Put(px, size, x, y,
+                    Math.Clamp(54 + s / 2 + v, 0, 255),
+                    Math.Clamp(126 + s + v, 0, 255),
+                    Math.Clamp(44 + s / 2 + v, 0, 255));
+            }
+        return px;
+    }
+
+    /// Pale blue ice with lighter diagonal cracks.
+    static byte[] IceTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 3541, y + 631) * 14) - 7;
+                bool crack = (x + y * 2) % (size / 2) == 0 && Core.Noise.Hash2(x + 91, y + 55) > 0.4;
+                int s = crack ? 26 : 0;
+                Put(px, size, x, y,
+                    Math.Clamp(158 + s + v, 0, 255),
+                    Math.Clamp(196 + s + v, 0, 255),
+                    Math.Clamp(238 + s / 2 + v / 2, 0, 255));
+            }
+        return px;
+    }
+
+    /// Badlands surface: orange-red sand speckle.
+    static byte[] RedSandTile(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 5501, y + 2273) * 26) - 13;
+                Put(px, size, x, y,
+                    Math.Clamp(191 + v, 0, 255),
+                    Math.Clamp(103 + v, 0, 255),
+                    Math.Clamp(49 + v / 2, 0, 255));
+            }
+        return px;
+    }
+
+    /// Badlands strata: hard-baked clay with faint horizontal banding; the
+    /// red variant is the darker accent band.
+    static byte[] TerracottaTile(int size, bool red)
+    {
+        var px = new byte[size * size * 4];
+        var (r, g, b) = red ? (146, 62, 41) : (172, 92, 48);
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 6151, y + 887) * 18) - 9;
+                int band = (int)(Core.Noise.Hash2(0, y + 3251) * 14) - 7; // per-row tone
+                Put(px, size, x, y,
+                    Math.Clamp(r + band + v, 0, 255),
+                    Math.Clamp(g + band + v, 0, 255),
+                    Math.Clamp(b + band / 2 + v / 2, 0, 255));
+            }
+        return px;
+    }
+
+    /// Mushroom-island ground: purple-grey mycelium; the side variant shows
+    /// dirt with a mycelium rim on top (like the grass block's side).
+    static byte[] MyceliumTile(int size, bool top)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 733, y + 6577) * 24) - 12;
+                bool myc = top || y < size * 3 / 16 + (int)(Core.Noise.Hash2(x + 191, 7) * (size / 8.0));
+                if (myc)
+                    Put(px, size, x, y,
+                        Math.Clamp(122 + v, 0, 255),
+                        Math.Clamp(103 + v, 0, 255),
+                        Math.Clamp(128 + v, 0, 255));
+                else
+                    Put(px, size, x, y,
+                        Math.Clamp(121 + v, 0, 255),
+                        Math.Clamp(85 + v, 0, 255),
+                        Math.Clamp(58 + v / 2, 0, 255));
+            }
+        return px;
+    }
+
+    /// Giant mushroom cap: red with 2x2 white spots.
+    static byte[] MushroomCapTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 8117, y + 445) * 16) - 8;
+                bool spot = Core.Noise.Hash2(x / 3 + 71, y / 3 + 313) > 0.82;
+                if (spot) Put(px, size, x, y, Math.Clamp(238 + v, 0, 255), Math.Clamp(232 + v, 0, 255), Math.Clamp(224 + v, 0, 255));
+                else Put(px, size, x, y, Math.Clamp(198 + v, 0, 255), Math.Clamp(48 + v / 2, 0, 255), Math.Clamp(44 + v / 2, 0, 255));
+            }
+        return px;
+    }
+
+    /// Giant mushroom stem: pale fibrous vertical strands.
+    static byte[] MushroomStemTile(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int strip = (int)(Core.Noise.Hash2(x + 411, 3) * 16) - 8;
+                int v = (int)(Core.Noise.Hash2(x + 9127, y + 719) * 10) - 5;
+                Put(px, size, x, y,
+                    Math.Clamp(212 + strip + v, 0, 255),
+                    Math.Clamp(206 + strip + v, 0, 255),
+                    Math.Clamp(193 + strip + v, 0, 255));
+            }
+        return px;
+    }
+
+    /// Glass: transparent pane with a pale frame and a couple of diagonal
+    /// streaks; the background alpha is 0, discarded by the world shader.
+    static byte[] GlassTileTex(int size)
+    {
+        var px = new byte[size * size * 4]; // zero-initialized = fully transparent
+        int t = Math.Max(1, size / 16);
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                bool frame = x < t || x >= size - t || y < t || y >= size - t;
+                bool streak = (x + y) == size / 2 + 1 || (x + y) == size / 2 + 2
+                           || (x + y) == size + size / 3 || (x + y) == size + size / 3 + 1;
+                if (frame) Put(px, size, x, y, 208, 226, 234);
+                else if (streak) Put(px, size, x, y, 236, 246, 250, 190);
             }
         return px;
     }
@@ -638,6 +820,39 @@ public static class TextureGen
     public static byte[] FurnaceIcon(int size = 16) => FurnaceSideTile(size, FurnaceFace.Front);
     public static byte[] SnowIcon(int size = 16) => SnowTileTex(size);
     public static byte[] DryGrassIcon(int size = 16) => DryGrassTile(size, top: false);
+    public static byte[] BirchIcon(int size = 16) => BirchTile(size);
+    public static byte[] SpruceIcon(int size = 16) => SpruceTile(size);
+    public static byte[] CactusIcon(int size = 16) => CactusTileTex(size);
+    public static byte[] IceIcon(int size = 16) => IceTileTex(size);
+    public static byte[] RedSandIcon(int size = 16) => RedSandTile(size);
+    public static byte[] TerracottaIcon(bool red, int size = 16) => TerracottaTile(size, red);
+    public static byte[] MyceliumIcon(int size = 16) => MyceliumTile(size, top: false);
+    public static byte[] MushroomCapIcon(int size = 16) => MushroomCapTileTex(size);
+    public static byte[] MushroomStemIcon(int size = 16) => MushroomStemTile(size);
+    public static byte[] GlassIcon(int size = 16) => GlassTileTex(size);
+
+    /// 16x16 icon: two fence posts joined by two rails.
+    public static byte[] FenceIcon(int size = 16)
+    {
+        var px = new byte[size * size * 4];
+        void Bar(int x0, int y0, int x1, int y1, int shade)
+        {
+            for (int y = y0; y < y1; y++)
+                for (int x = x0; x < x1; x++)
+                {
+                    int v = (int)(Core.Noise.Hash2(x + 271, y + 63) * 14) - 7;
+                    Put(px, size, x, y,
+                        Math.Clamp(160 + shade + v, 0, 255),
+                        Math.Clamp(125 + shade + v, 0, 255),
+                        Math.Clamp(75 + shade / 2 + v, 0, 255));
+                }
+        }
+        Bar(3, 2, 6, 15, 0);    // left post
+        Bar(10, 2, 13, 15, 0);  // right post
+        Bar(0, 4, 16, 7, -18);  // upper rail
+        Bar(0, 10, 16, 13, -18); // lower rail
+        return px;
+    }
 }
 
 /// All inventory icon PNGs composited into one texture, with per-item UV rects.
@@ -670,7 +885,7 @@ public sealed class IconAtlas
     public IconAtlas(Renderer renderer, string iconDir)
     {
         const int cell = 16, cols = 9;
-        int cells = Files.Length + 29; // generated: torch, flowers, boat, tall grass, hearts, hunger, meats, new blocks
+        int cells = Files.Length + 41; // generated: torch, flowers, boat, tall grass, hearts, hunger, meats, new blocks
         int rows = (cells + cols - 1) / cols;
         int atlasW = cols * cell, atlasH = rows * cell;
         var pixels = new byte[atlasW * atlasH * 4];
@@ -728,6 +943,18 @@ public sealed class IconAtlas
         Blit(Files.Length + 26, Core.BlockId.Furnace, TextureGen.FurnaceIcon(), 16, 16);
         Blit(Files.Length + 27, Core.BlockId.Snow, TextureGen.SnowIcon(), 16, 16);
         Blit(Files.Length + 28, Core.BlockId.DryGrass, TextureGen.DryGrassIcon(), 16, 16);
+        Blit(Files.Length + 29, Core.BlockId.BirchWood, TextureGen.BirchIcon(), 16, 16);
+        Blit(Files.Length + 30, Core.BlockId.SpruceWood, TextureGen.SpruceIcon(), 16, 16);
+        Blit(Files.Length + 31, Core.BlockId.Cactus, TextureGen.CactusIcon(), 16, 16);
+        Blit(Files.Length + 32, Core.BlockId.Ice, TextureGen.IceIcon(), 16, 16);
+        Blit(Files.Length + 33, Core.BlockId.RedSand, TextureGen.RedSandIcon(), 16, 16);
+        Blit(Files.Length + 34, Core.BlockId.Terracotta, TextureGen.TerracottaIcon(red: false), 16, 16);
+        Blit(Files.Length + 35, Core.BlockId.TerracottaRed, TextureGen.TerracottaIcon(red: true), 16, 16);
+        Blit(Files.Length + 36, Core.BlockId.Mycelium, TextureGen.MyceliumIcon(), 16, 16);
+        Blit(Files.Length + 37, Core.BlockId.MushroomCap, TextureGen.MushroomCapIcon(), 16, 16);
+        Blit(Files.Length + 38, Core.BlockId.MushroomStem, TextureGen.MushroomStemIcon(), 16, 16);
+        Blit(Files.Length + 39, Core.BlockId.Fence, TextureGen.FenceIcon(), 16, 16);
+        Blit(Files.Length + 40, Core.BlockId.Glass, TextureGen.GlassIcon(), 16, 16);
 
         Texture = new GpuTexture(renderer.Ctx, pixels, atlasW, atlasH);
         Handle = renderer.RegisterTexture(Texture);

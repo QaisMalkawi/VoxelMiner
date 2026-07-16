@@ -219,59 +219,32 @@ public sealed class WorldRenderer
     // Without this a single frame's GPU work can exceed the OS watchdog
     // (TDR) and kill the device.
 
-    readonly Vector4[] _planes = new Vector4[6];
+    Frustum _frustum;
 
-    /// Extracts the 6 clip planes from a row-vector (v * M) view-projection.
-    void ExtractPlanes(in Matrix4x4 m)
-    {
-        var c0 = new Vector4(m.M11, m.M21, m.M31, m.M41);
-        var c1 = new Vector4(m.M12, m.M22, m.M32, m.M42);
-        var c2 = new Vector4(m.M13, m.M23, m.M33, m.M43);
-        var c3 = new Vector4(m.M14, m.M24, m.M34, m.M44);
-        _planes[0] = c3 + c0; // left
-        _planes[1] = c3 - c0; // right
-        _planes[2] = c3 + c1; // bottom
-        _planes[3] = c3 - c1; // top
-        _planes[4] = c2;      // near (Vulkan clip z in 0..1)
-        _planes[5] = c3 - c2; // far
-    }
+    bool ChunkVisible(int cx, int cz) => _frustum.BoxVisible(
+        new Vector3(cx * ChunkSize, 0, cz * ChunkSize),
+        new Vector3(cx * ChunkSize + ChunkSize, WorldHeight, cz * ChunkSize + ChunkSize));
 
-    bool ChunkVisible(int cx, int cz)
+    public void Draw(Frustum frustum)
     {
-        float x0 = cx * ChunkSize, z0 = cz * ChunkSize;
-        float x1 = x0 + ChunkSize, z1 = z0 + ChunkSize;
-        foreach (var p in _planes)
-        {
-            // positive-vertex test: the AABB corner farthest along the plane
-            // normal must be on the inside, else the whole box is out
-            float vx = p.X >= 0 ? x1 : x0;
-            float vy = p.Y >= 0 ? WorldHeight : 0;
-            float vz = p.Z >= 0 ? z1 : z0;
-            if (vx * p.X + vy * p.Y + vz * p.Z + p.W < 0) return false;
-        }
-        return true;
-    }
-
-    public void Draw(in Matrix4x4 viewProj)
-    {
-        ExtractPlanes(viewProj);
+        _frustum = frustum;
         foreach (var ((cx, cz), mesh) in Meshes)
         {
             if (mesh.IndexCount == 0 || !ChunkVisible(cx, cz)) continue;
             var model = Matrix4x4.CreateTranslation(cx * ChunkSize, 0, cz * ChunkSize);
-            _renderer.DrawMesh(mesh, model, Vector4.One, textured: true, _atlas);
+            _renderer.DrawMesh(mesh, model, Vector4.One, textured: true, _atlas, lightmap: true);
         }
     }
 
     /// Translucent pass — call after all opaque geometry so blending is
-    /// correct. Reuses the planes extracted by Draw this frame.
+    /// correct. Reuses the frustum passed to Draw this frame.
     public void DrawWater()
     {
         foreach (var ((cx, cz), mesh) in WaterMeshes)
         {
             if (!ChunkVisible(cx, cz)) continue;
             var model = Matrix4x4.CreateTranslation(cx * ChunkSize, 0, cz * ChunkSize);
-            _renderer.DrawMesh(mesh, model, WaterTint, textured: true, _atlas);
+            _renderer.DrawMesh(mesh, model, WaterTint, textured: true, _atlas, lightmap: true);
         }
     }
 }

@@ -33,10 +33,20 @@ public sealed class TerrainGenerator
     const double DetailFreq1 = 0.013, DetailFreq2 = 0.06;
     const int DetailBonus1 = 8, DetailBonus2 = 3;
 
-    // very low frequency: climate zones span ~1500 blocks so the walk from
-    // tundra to desert passes through plains/forest/savanna instead of the
-    // whole gradient fitting inside one view distance
-    const double ClimateFreq = 0.0007;
+    // two-scale climate, Minecraft-style: continental bands (~2500 blocks)
+    // set the broad hot/cold and wet/dry regions, and a regional band
+    // (~300 blocks) breaks each region into a patchwork of sister biomes so
+    // a short walk crosses several biomes instead of one endless gradient
+    const double ClimateBaseFreq = 0.0004;
+    const double ClimateVarFreq = 0.0032;
+
+    // badlands: a rare mask gated to warm-dry base climate; where it's active
+    // the terrain terraces into stepped mesa plateaus with terracotta strata
+    const double BadlandsFreq = 0.0011;
+
+    // mushroom islands: a very rare mask only expressed in open ocean, which
+    // lifts the sea floor into a small mycelium island
+    const double MushroomFreq = 0.0025;
 
     // rivers: narrow wandering channels along the 0.5 iso-line of one
     // low-frequency noise band. The channel follows the macro landscape
@@ -49,22 +59,36 @@ public sealed class TerrainGenerator
     const double RiverFreq = 0.003;
     const double RiverInner = 0.004;
     const double RiverOuter = 0.022;
+    // domain warp: the river band is sampled at coordinates displaced by two
+    // fbm noises, so channels meander and kink like real rivers instead of
+    // tracing the smooth round iso-lines of the raw band
+    const double RiverWarpFreq = 0.004;
+    const double RiverWarp = 200;
     const double RiverSurfaceDrop = 2;   // water surface under the macro height
     const double RiverDepth = 3.5;       // extra carve below the surface at the centerline
 
     public int SurfaceHeight(int gx, int gz) => ComputeHeight(gx, gz).Height;
 
-    (int Height, double Ocean, double Mountain, double River, int RiverSurface) ComputeHeight(int gx, int gz)
+    /// Everything ComputeHeight learns about a column that ClassifyBiome and
+    /// FillColumn need again: masks are 0..1, TBase/MBase are the raw
+    /// continent-scale temperature/humidity bands.
+    readonly record struct HeightInfo(int Height, double Ocean, double Mountain, double River,
+        int RiverSurface, double Badlands, double Mushroom, double TBase, double MBase);
+
+    static double Smooth(double t) => t * t * (3 - 2 * t);
+
+    HeightInfo ComputeHeight(int gx, int gz)
     {
         // offset well away from the noise-lattice origin so the world's
         // spawn point isn't sitting on a degenerate (fx=fz=0) sample
         double cont = Noise.Fbm2(gx * ContinentalFreq + 300, gz * ContinentalFreq + 300);
-        double ocean = Math.Clamp((0.46 - cont) / 0.10, 0, 1);    // wide smooth shelf into the sea
-        ocean = ocean * ocean * (3 - 2 * ocean);
-        double mountain = Math.Clamp((cont - 0.58) / 0.16, 0, 1); // ranges where continents peak
-        mountain = mountain * mountain * (3 - 2 * mountain);
+        double ocean = Smooth(Math.Clamp((0.46 - cont) / 0.10, 0, 1));    // wide smooth shelf into the sea
+        double mountain = Smooth(Math.Clamp((cont - 0.58) / 0.16, 0, 1)); // ranges where continents peak
 
         double macro = PlainsBase - ocean * (PlainsBase - OceanFloor) + mountain * MountainBonus;
+
+        double tBase = Noise.Noise2(gx * ClimateBaseFreq + 1000, gz * ClimateBaseFreq + 1000);
+        double mBase = Noise.Noise2(gx * ClimateBaseFreq + 2000, gz * ClimateBaseFreq + 2000);
 
         double r1 = 1 - Math.Abs(Noise.Noise2(gx * RidgeFreq + 500, gz * RidgeFreq + 500) * 2 - 1);
         double r2 = 1 - Math.Abs(Noise.Noise2(gx * RidgeFreq * 2.7 + 900, gz * RidgeFreq * 2.7 + 900) * 2 - 1);
@@ -77,10 +101,36 @@ public sealed class TerrainGenerator
 
         double h = macro + mountain * ridge * ridge * RidgeBonus + hills + detail;
 
-        double riv = Noise.Noise2(gx * RiverFreq + 4000, gz * RiverFreq + 4000);
+        // mushroom islands rise out of open ocean to a low rolling cap
+        double mush = 0;
+        if (ocean > 0.7)
+        {
+            mush = Smooth(Math.Clamp((Noise.Noise2(gx * MushroomFreq + 8000, gz * MushroomFreq + 8000) - 0.88) / 0.04, 0, 1))
+                 * Math.Clamp((ocean - 0.7) / 0.2, 0, 1);
+            if (mush > 0)
+            {
+                double island = SeaLevel + 3 + Noise.Fbm2(gx * 0.01 + 8500, gz * 0.01 + 8500) * 8;
+                h = h * (1 - mush) + island * mush;
+            }
+        }
+
+        // badlands lift the ground and quantize it into 6-block mesa steps;
+        // the mask fades in smoothly so plateau rims blend into normal land
+        double bad = Smooth(Math.Clamp((Noise.Noise2(gx * BadlandsFreq + 9000, gz * BadlandsFreq + 9000) - 0.72) / 0.08, 0, 1))
+                   * Math.Clamp((tBase - 0.52) / 0.12, 0, 1) * Math.Clamp((0.48 - mBase) / 0.12, 0, 1)
+                   * (1 - ocean) * (1 - mountain);
+        if (bad > 0)
+        {
+            double mesa = Math.Floor((h + 10) / 6.0) * 6.0;
+            h = h * (1 - bad) + mesa * bad;
+        }
+
+        double wx = (Noise.Fbm2(gx * RiverWarpFreq + 5100, gz * RiverWarpFreq + 5100) - 0.5) * RiverWarp;
+        double wz = (Noise.Fbm2(gx * RiverWarpFreq + 5700, gz * RiverWarpFreq + 5700) - 0.5) * RiverWarp;
+        double riv = Noise.Noise2((gx + wx) * RiverFreq + 4000, (gz + wz) * RiverFreq + 4000);
         double dist = Math.Abs(riv - 0.5);
         double river = Math.Clamp((RiverOuter - dist) / (RiverOuter - RiverInner), 0, 1);
-        river = river * river * (3 - 2 * river); // smoothstep: soft banks
+        river = Smooth(river); // soft banks
         int riverSurface = 0;
         if (river > 0)
         {
@@ -93,7 +143,8 @@ public sealed class TerrainGenerator
             riverSurface = (int)Math.Floor(surfaceLvl);
         }
 
-        return (Math.Clamp((int)Math.Floor(h), 4, WorldHeight - 4), ocean, mountain, river, riverSurface);
+        return new(Math.Clamp((int)Math.Floor(h), 4, WorldHeight - 4), ocean, mountain, river,
+            riverSurface, bad, mush, tBase, mBase);
     }
 
     /// <param name="RiverSurface">River water level for this column (0 = not a river)</param>
@@ -119,7 +170,8 @@ public sealed class TerrainGenerator
     {
         var col = Sample(x, z);
         if (col.Height <= SeaLevel + 1 || col.Steep || col.RiverSurface > 0) return false;
-        if (col.Biome is not (Biome.Plains or Biome.Forest or Biome.Beach or Biome.Desert)) return false;
+        if (col.Biome is not (Biome.Plains or Biome.Forest or Biome.Beach or Biome.Desert
+            or Biome.BirchForest or Biome.FlowerForest or Biome.Taiga)) return false;
         for (int dx = -2; dx <= 2; dx++)      // canopies reach 2 blocks out from the trunk
             for (int dz = -2; dz <= 2; dz++)
                 if (TreeAt(x + dx, z + dz) != null) return false;
@@ -130,11 +182,11 @@ public sealed class TerrainGenerator
     /// don't need it (the 2D map) pass false.
     public ColumnInfo Sample(int gx, int gz, bool computeSteep = true)
     {
-        var (h, ocean, mountain, river, riverSurface) = ComputeHeight(gx, gz);
+        var hi = ComputeHeight(gx, gz);
         bool steep = computeSteep &&
-                     (Math.Abs(ComputeHeight(gx + 1, gz).Height - h) >= 3
-                   || Math.Abs(ComputeHeight(gx, gz + 1).Height - h) >= 3);
-        return new ColumnInfo(h, ClassifyBiome(gx, gz, h, ocean, mountain, river), steep, riverSurface);
+                     (Math.Abs(ComputeHeight(gx + 1, gz).Height - hi.Height) >= 3
+                   || Math.Abs(ComputeHeight(gx, gz + 1).Height - hi.Height) >= 3);
+        return new ColumnInfo(hi.Height, ClassifyBiome(gx, gz, hi), steep, hi.RiverSurface);
     }
 
     // climate borders get a dose of higher-frequency jitter so neighbouring
@@ -144,40 +196,73 @@ public sealed class TerrainGenerator
     const double ClimateJitter = 0.10;
     const int SnowHeight = 86; // peaks above this are white regardless of climate
 
-    Biome ClassifyBiome(int gx, int gz, int h, double ocean, double mountain, double river)
+    Biome ClassifyBiome(int gx, int gz, in HeightInfo hi)
     {
-        if (river > 0.5 && ocean <= 0) return Biome.River; // rivers exist at any elevation now
-        if (h <= SeaLevel) return Biome.Ocean;
-        if (h <= SeaLevel + 2) return Biome.Beach;
+        int h = hi.Height;
+        if (hi.Mushroom > 0.5 && h > SeaLevel) return Biome.Mushroom;
+        if (hi.River > 0.5 && hi.Ocean <= 0) return Biome.River; // rivers exist at any elevation now
 
         double jt = (Noise.Noise2(gx * ClimateJitterFreq + 5000, gz * ClimateJitterFreq + 5000) - 0.5) * ClimateJitter;
         double jh = (Noise.Noise2(gx * ClimateJitterFreq + 6000, gz * ClimateJitterFreq + 6000) - 0.5) * ClimateJitter;
-        double temperature = Noise.Noise2(gx * ClimateFreq + 1000, gz * ClimateFreq + 1000) + jt;
-        double humidity = Noise.Noise2(gx * ClimateFreq + 2000, gz * ClimateFreq + 2000) + jh;
+        // continent-scale bands blended with the regional patch band, then
+        // stretched back out so the extremes (desert, tundra) stay reachable
+        double tVar = Noise.Noise2(gx * ClimateVarFreq + 1500, gz * ClimateVarFreq + 1500);
+        double mVar = Noise.Noise2(gx * ClimateVarFreq + 2500, gz * ClimateVarFreq + 2500);
+        double temperature = 0.5 + (hi.TBase * 0.62 + tVar * 0.38 - 0.5) * 1.5 + jt;
+        double humidity = 0.5 + (hi.MBase * 0.62 + mVar * 0.38 - 0.5) * 1.5 + jh;
         // altitude cools the climate: highlands trend toward tundra/snow and
         // deserts only form in the lowlands
         temperature -= Math.Max(0, h - (PlainsBase + 10)) * 0.006;
 
-        if (mountain > 0.5 + jt * 0.6) // jitter raggedises the treeline too
-            return h >= SnowHeight || temperature < 0.4 ? Biome.SnowyMountains : Biome.Mountains;
-        if (temperature < 0.3) return Biome.Tundra;
-        if (temperature > 0.62 && humidity < 0.42) return Biome.Desert;
-        if (temperature > 0.52 && humidity < 0.5) return Biome.Savanna;
-        if (humidity > 0.62 && h <= SeaLevel + 5) return Biome.Swamp;
-        if (temperature > 0.55 && humidity > 0.6) return Biome.Jungle;
-        if (humidity > 0.55) return Biome.Forest;
+        if (h <= SeaLevel)
+        {
+            if (temperature < 0.22) return Biome.FrozenOcean;
+            return h <= SeaLevel - 14 ? Biome.DeepOcean : Biome.Ocean;
+        }
+        if (h <= SeaLevel + 2) return Biome.Beach;
+        if (hi.Badlands > 0.4) return Biome.Badlands;
+
+        if (hi.Mountain > 0.5 + jt * 0.6) // jitter raggedises the treeline too
+            return h >= SnowHeight || temperature < 0.22 ? Biome.SnowyMountains : Biome.Mountains;
+
+        // a third band picks between sister biomes of the same climate
+        // (forest/birch, plains/flower field) so patches interleave
+        double variant = Noise.Noise2(gx * ClimateVarFreq + 7000, gz * ClimateVarFreq + 7000);
+
+        if (temperature < 0.24) return humidity > 0.55 ? Biome.SnowyTaiga : Biome.Tundra;
+        if (temperature < 0.42) return humidity > 0.50 ? Biome.Taiga : (variant > 0.65 ? Biome.Forest : Biome.Plains);
+        if (temperature > 0.64 && humidity < 0.34) return Biome.Desert;
+        if (temperature > 0.56 && humidity < 0.48) return Biome.Savanna;
+        if (humidity > 0.58 && h <= SeaLevel + 6) return Biome.Swamp;
+        if (temperature > 0.56 && humidity > 0.60) return Biome.Jungle;
+        if (humidity > 0.68) return Biome.DarkForest;
+        if (humidity > 0.52) return variant > 0.62 ? Biome.BirchForest : Biome.Forest;
+        if (variant > 0.76) return Biome.FlowerForest;
         return Biome.Plains;
     }
 
     static (int Surface, int Fill) SurfaceBlocks(Biome biome, bool steep) => biome switch
     {
-        Biome.Ocean or Biome.River or Biome.Beach or Biome.Desert => (BlockId.Sand, BlockId.Sand),
+        Biome.Ocean or Biome.DeepOcean or Biome.FrozenOcean or Biome.River
+            or Biome.Beach or Biome.Desert => (BlockId.Sand, BlockId.Sand),
+        Biome.Badlands => (BlockId.RedSand, BlockId.Terracotta), // fill deepens into banded strata (FillColumn)
+        Biome.Mushroom => (BlockId.Mycelium, BlockId.Dirt),
         Biome.SnowyMountains => steep ? (BlockId.Stone, BlockId.Stone) : (BlockId.Snow, BlockId.Stone),
-        Biome.Tundra when !steep => (BlockId.Snow, BlockId.Dirt),
+        Biome.Tundra or Biome.SnowyTaiga when !steep => (BlockId.Snow, BlockId.Dirt),
         _ when steep => (BlockId.Stone, BlockId.Stone),
         Biome.Mountains => (BlockId.Stone, BlockId.Stone), // rocky above the treeline even on gentle ground
         Biome.Savanna => (BlockId.DryGrass, BlockId.Dirt),
         _ => (BlockId.Grass, BlockId.Dirt),
+    };
+
+    /// Horizontal strata for badlands mesas: mostly orange terracotta with
+    /// recurring red and sand bands, keyed by absolute height so the layers
+    /// line up across the whole mesa like Minecraft's painted deserts.
+    static int TerracottaBand(int y) => (y % 7) switch
+    {
+        2 => BlockId.TerracottaRed,
+        5 => BlockId.RedSand,
+        _ => BlockId.Terracotta,
     };
 
     public byte[] Generate(int cx, int cz)
@@ -204,14 +289,18 @@ public sealed class TerrainGenerator
             if (y == 0 || (y == 1 && Noise.Hash2(gx + 3, gz + 5) < 0.5)) b = BlockId.Bedrock;
             else if (IsCave(gx, y, gz, h)) b = BlockId.Air;
             else if (y == h) b = surface;
+            // badlands run 12 deep so terraced cliff faces expose the strata
+            else if (col.Biome == Biome.Badlands && y >= h - 11) b = TerracottaBand(y);
             else if (y >= h - 3) b = fill;
             else b = OreAt(gx, y, gz);
             data[BlockIndex(lx, y, lz)] = (byte)b;
         }
         // low ground floods up to sea level; river channels flood up to
-        // their own terrain-following surface, which can sit far above it
+        // their own terrain-following surface, which can sit far above it.
+        // Frozen oceans cap the flood with a sheet of ice.
         for (int y = h + 1; y <= Math.Max(SeaLevel, col.RiverSurface); y++)
-            data[BlockIndex(lx, y, lz)] = (byte)BlockId.Water;
+            data[BlockIndex(lx, y, lz)] = (byte)(col.Biome == Biome.FrozenOcean && y == SeaLevel
+                ? BlockId.Ice : BlockId.Water);
     }
 
     bool IsCave(int gx, int gy, int gz, int h)
@@ -234,7 +323,7 @@ public sealed class TerrainGenerator
 
     // ------------------------------------------------------------- trees
 
-    enum TreeKind { Oak, Jungle, Savanna }
+    enum TreeKind { Oak, Birch, Spruce, DarkOak, Jungle, Savanna, Mushroom, Cactus }
 
     (int H, int Trunk, TreeKind Kind)? TreeAt(int gx, int gz)
     {
@@ -243,13 +332,24 @@ public sealed class TerrainGenerator
         var (chance, kind, tMin, tVar) = col.Biome switch
         {
             Biome.Forest => (0.05, TreeKind.Oak, 4, 3),
+            Biome.BirchForest => (0.055, TreeKind.Birch, 5, 3),
+            Biome.DarkForest => (0.09, TreeKind.DarkOak, 4, 2),   // dense closed canopy
+            Biome.FlowerForest => (0.015, TreeKind.Oak, 4, 3),
+            Biome.Taiga => (0.055, TreeKind.Spruce, 5, 4),
+            Biome.SnowyTaiga => (0.035, TreeKind.Spruce, 5, 3),
             Biome.Plains => (0.008, TreeKind.Oak, 4, 3),
             Biome.Jungle => (0.085, TreeKind.Jungle, 6, 4),
             Biome.Swamp => (0.02, TreeKind.Oak, 4, 2),
             Biome.Savanna => (0.006, TreeKind.Savanna, 4, 2),
+            Biome.Mushroom => (0.045, TreeKind.Mushroom, 4, 3),
+            Biome.Desert => (0.007, TreeKind.Cactus, 1, 3),
+            Biome.Badlands => (0.004, TreeKind.Cactus, 1, 2),
             _ => (0.0, TreeKind.Oak, 0, 0),
         };
         if (chance <= 0 || Noise.Hash2(gx + 911, gz + 337) >= chance) return null;
+        // regular forests mix in the odd birch, like Minecraft's oak forests
+        if (kind == TreeKind.Oak && col.Biome == Biome.Forest && Noise.Hash2(gx + 551, gz + 883) < 0.25)
+            kind = TreeKind.Birch;
         return (col.Height, tMin + (int)Math.Floor(Noise.Hash2(gx + 13, gz + 7) * tVar), kind);
     }
 
@@ -273,10 +373,60 @@ public sealed class TerrainGenerator
                     data[i] = (byte)b;
                 }
 
-                for (int dy = 1; dy <= t.Trunk; dy++) Put(gx, t.H + dy, gz, BlockId.Wood, false);
+                int trunkBlock = t.Kind switch
+                {
+                    TreeKind.Birch => BlockId.BirchWood,
+                    TreeKind.Spruce => BlockId.SpruceWood,
+                    TreeKind.Mushroom => BlockId.MushroomStem,
+                    TreeKind.Cactus => BlockId.Cactus,
+                    _ => BlockId.Wood,
+                };
+                for (int dy = 1; dy <= t.Trunk; dy++) Put(gx, t.H + dy, gz, trunkBlock, false);
                 int top = t.H + t.Trunk;
                 switch (t.Kind)
                 {
+                    case TreeKind.Cactus: // bare column, no canopy
+                        break;
+                    case TreeKind.Spruce: // conical: alternating narrow/wide rings up to a tip
+                        Put(gx, top + 2, gz, BlockId.Leaves, true);
+                        for (int dy = 1; dy >= -3; dy--)
+                        {
+                            int r = dy is -1 or -3 ? 2 : 1;
+                            for (int dx = -r; dx <= r; dx++)
+                                for (int dz = -r; dz <= r; dz++)
+                                    if (!(dx == 0 && dz == 0) && !(r == 2 && Math.Abs(dx) == 2 && Math.Abs(dz) == 2))
+                                        Put(gx + dx, top + dy, gz + dz, BlockId.Leaves, true);
+                        }
+                        break;
+                    case TreeKind.Birch: // slim tall crown
+                        for (int dx = -1; dx <= 1; dx++)
+                            for (int dy = -2; dy <= 2; dy++)
+                                for (int dz = -1; dz <= 1; dz++)
+                                    if (dx * dx + dy * dy * 0.8 + dz * dz <= 3.4)
+                                        Put(gx + dx, top + dy, gz + dz, BlockId.Leaves, true);
+                        break;
+                    case TreeKind.DarkOak: // huge flat blob that closes the canopy
+                        for (int dx = -3; dx <= 3; dx++)
+                            for (int dz = -3; dz <= 3; dz++)
+                                if (dx * dx + dz * dz <= 10.5)
+                                {
+                                    Put(gx + dx, top, gz + dz, BlockId.Leaves, true);
+                                    Put(gx + dx, top - 1, gz + dz, BlockId.Leaves, true);
+                                }
+                        for (int dx = -2; dx <= 2; dx++)
+                            for (int dz = -2; dz <= 2; dz++)
+                                if (dx * dx + dz * dz <= 4.5)
+                                    Put(gx + dx, top + 1, gz + dz, BlockId.Leaves, true);
+                        break;
+                    case TreeKind.Mushroom: // domed red cap with white spots
+                        for (int dx = -2; dx <= 2; dx++)
+                            for (int dz = -2; dz <= 2; dz++)
+                                if (dx * dx + dz * dz <= 6.5)
+                                    Put(gx + dx, top + 1, gz + dz, BlockId.MushroomCap, true);
+                        for (int dx = -1; dx <= 1; dx++)
+                            for (int dz = -1; dz <= 1; dz++)
+                                Put(gx + dx, top + 2, gz + dz, BlockId.MushroomCap, true);
+                        break;
                     case TreeKind.Jungle: // big rounded canopy for tall jungle trees
                         for (int dx = -3; dx <= 3; dx++)
                             for (int dy = -2; dy <= 2; dy++)
@@ -320,6 +470,10 @@ public sealed class TerrainGenerator
                 {
                     Biome.Plains => (0.05, 0.016),
                     Biome.Forest => (0.05, 0.016),
+                    Biome.BirchForest => (0.05, 0.02),
+                    Biome.DarkForest => (0.04, 0.006),
+                    Biome.FlowerForest => (0.06, 0.22), // carpeted in blooms
+                    Biome.Taiga => (0.04, 0.004),
                     Biome.Swamp => (0.16, 0.004),   // lush, overgrown ground
                     Biome.Jungle => (0.10, 0.012),
                     Biome.Savanna => (0.12, 0.0),   // dry tufts, no flowers
@@ -372,7 +526,7 @@ public sealed class TerrainGenerator
         az = gcz * VillageCell + 12 + (int)(Noise.Hash2(gcx * 131 + 7, gcz * 131 + 7) * jitterRange);
 
         var col = Sample(ax, az);
-        if (col.Biome is not (Biome.Plains or Biome.Savanna) || col.Steep || !IsFlatArea(ax, az)) return false;
+        if (col.Biome is not (Biome.Plains or Biome.Savanna or Biome.Taiga) || col.Steep || !IsFlatArea(ax, az)) return false;
         height = col.Height;
         return true;
     }

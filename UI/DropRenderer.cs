@@ -11,10 +11,11 @@ using VoxelMiner.World;
 /// planks tile). Stacks of more than one draw a second offset cube.
 public static class DropRenderer
 {
-    public static void Draw(Renderer renderer, CubeMeshCache blockCubes, TextureHandle atlas, IEnumerable<ItemDrop> drops)
+    public static void Draw(Renderer renderer, CubeMeshCache blockCubes, TextureHandle atlas, IEnumerable<ItemDrop> drops, Frustum frustum)
     {
         foreach (var d in drops)
         {
+            if (!frustum.SphereVisible(d.Pos, 0.6f)) continue;
             int tile = BlockRegistry.Blocks.TryGetValue(d.Id, out var def)
                 ? def.Tiles[2]
                 : BlockRegistry.Blocks[Core.BlockId.Planks].Tiles[2];

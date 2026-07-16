@@ -9,7 +9,7 @@ public enum ToolClass { None, Pick, Shovel, Axe }
 public enum BlockShape
 {
     Cube, Stairs, SlabBottom, SlabTop, SlabVert,
-    DoorLower, DoorUpper, Trapdoor, Chest, Furnace,
+    DoorLower, DoorUpper, Trapdoor, Chest, Furnace, Fence,
 }
 
 /// An axis-aligned collision box in block-local coordinates (0..1).
@@ -34,6 +34,10 @@ public static class BlockRegistry
     public const int ChestTopTile = 22, ChestSideTile = 23, ChestFrontTile = 24;
     public const int FurnaceTopTile = 25, FurnaceSideTile = 26, FurnaceFrontTile = 27, FurnaceLitTile = 28;
     public const int SnowTile = 29, DryGrassTopTile = 30, DryGrassSideTile = 31;
+    public const int BirchSideTile = 32, SpruceSideTile = 33, CactusTile = 34, IceTile = 35;
+    public const int RedSandTile = 36, TerracottaTile = 37, TerracottaRedTile = 38;
+    public const int MyceliumTopTile = 39, MyceliumSideTile = 40, MushroomCapTile = 41, MushroomStemTile = 42;
+    public const int GlassTile = 43;
 
     public const float PanelThickness = 3f / 16f; // doors & trapdoors
 
@@ -57,6 +61,18 @@ public static class BlockRegistry
         [Core.BlockId.FlowerRed]   = new("Red Flower",  new[] { 18, 18, 18 }, ToolClass.None, 0.05, 0, Core.BlockId.FlowerRed,   Rgb(210, 50, 50)),
         [Core.BlockId.Snow]     = new("Snow",      new[] { SnowTile, SnowTile, SnowTile },        ToolClass.Shovel, 0.35, 0, Core.BlockId.Snow, Rgb(238, 242, 245)),
         [Core.BlockId.DryGrass] = new("Dry Grass", new[] { DryGrassTopTile, 2, DryGrassSideTile }, ToolClass.Shovel, 0.60, 0, Core.BlockId.Dirt, Rgb(178, 160, 74)),
+        [Core.BlockId.BirchWood]  = new("Birch Wood",  new[] { 6, 6, BirchSideTile },  ToolClass.Axe, 2.0, 0, Core.BlockId.BirchWood,  Rgb(216, 213, 202)),
+        [Core.BlockId.SpruceWood] = new("Spruce Wood", new[] { 6, 6, SpruceSideTile }, ToolClass.Axe, 2.0, 0, Core.BlockId.SpruceWood, Rgb(84, 60, 34)),
+        [Core.BlockId.Cactus]     = new("Cactus",      new[] { CactusTile, CactusTile, CactusTile }, ToolClass.None, 0.4, 0, Core.BlockId.Cactus, Rgb(54, 126, 44)),
+        [Core.BlockId.Ice]        = new("Ice",         new[] { IceTile, IceTile, IceTile },          ToolClass.Pick, 0.6, 0, Core.BlockId.Ice,    Rgb(158, 196, 238)),
+        [Core.BlockId.RedSand]    = new("Red Sand",    new[] { RedSandTile, RedSandTile, RedSandTile }, ToolClass.Shovel, 0.40, 0, Core.BlockId.RedSand, Rgb(191, 103, 49)),
+        [Core.BlockId.Terracotta] = new("Terracotta",  new[] { TerracottaTile, TerracottaTile, TerracottaTile }, ToolClass.Pick, 1.3, 0, Core.BlockId.Terracotta, Rgb(172, 92, 48)),
+        [Core.BlockId.TerracottaRed] = new("Red Terracotta", new[] { TerracottaRedTile, TerracottaRedTile, TerracottaRedTile }, ToolClass.Pick, 1.3, 0, Core.BlockId.TerracottaRed, Rgb(146, 62, 41)),
+        [Core.BlockId.Mycelium]   = new("Mycelium",    new[] { MyceliumTopTile, 2, MyceliumSideTile }, ToolClass.Shovel, 0.60, 0, Core.BlockId.Dirt, Rgb(122, 103, 128)),
+        [Core.BlockId.MushroomCap]  = new("Mushroom Cap",  new[] { MushroomCapTile, MushroomCapTile, MushroomCapTile },    ToolClass.Axe, 0.3, 0, Core.BlockId.MushroomCap,  Rgb(198, 48, 44)),
+        [Core.BlockId.MushroomStem] = new("Mushroom Stem", new[] { MushroomStemTile, MushroomStemTile, MushroomStemTile }, ToolClass.Axe, 0.3, 0, Core.BlockId.MushroomStem, Rgb(212, 206, 193)),
+        [Core.BlockId.Fence] = new("Fence", new[] { 13, 13, 13 }, ToolClass.Axe, 1.8, 0, Core.BlockId.Fence, Rgb(160, 125, 75), BlockShape.Fence),
+        [Core.BlockId.Glass] = new("Glass", new[] { GlassTile, GlassTile, GlassTile }, ToolClass.None, 0.4, 0, Core.BlockId.Glass, Rgb(196, 220, 230)),
     };
 
     static readonly Vector3 PlankColor = Rgb(160, 125, 75);
@@ -180,16 +196,16 @@ public static class BlockRegistry
         id != Core.BlockId.Air && id != Core.BlockId.Water && id != Core.BlockId.Torch && !IsCross(id);
 
     /// Blocks that fully hide faces behind them (culling and ambient occlusion).
-    /// Leaves are cutout-transparent, so faces behind them must still render.
-    /// Partial blocks never fill their cell, so they hide nothing.
+    /// Leaves and glass are cutout-transparent, so faces behind them must
+    /// still render. Partial blocks never fill their cell, so they hide nothing.
     public static bool IsOpaque(int id) =>
         id != Core.BlockId.Air && id != Core.BlockId.Water && id != Core.BlockId.Torch
-        && id != Core.BlockId.Leaves && !IsCross(id) && !IsPartial(id);
+        && id != Core.BlockId.Leaves && id != Core.BlockId.Glass && !IsCross(id) && !IsPartial(id);
 
     /// How much light a block absorbs per step (15 = fully opaque).
     public static int LightOpacity(int id) => id switch
     {
-        Core.BlockId.Air or Core.BlockId.Torch => 0,
+        Core.BlockId.Air or Core.BlockId.Torch or Core.BlockId.Glass => 0,
         _ when IsCross(id) => 0,
         _ when IsPartial(id) => 0, // light flows through slab gaps, door frames...
         Core.BlockId.Leaves => 1,
@@ -262,8 +278,56 @@ public static class BlockRegistry
         _ => new Box(0, 0, 0, 0.5f, 1, 1),
     };
 
+    // ------------------------------------------------------------- fences
+
+    // Fence geometry depends on its neighbours, so boxes are precomputed per
+    // 4-bit connection mask (bit = facing 0..3, i.e. N/E/S/W) rather than per
+    // block id. GameWorld derives the mask; the mesher and physics look the
+    // boxes up here.
+    const float FenceP0 = 6f / 16, FenceP1 = 10f / 16;   // post cross-section
+    const float FenceR0 = 7f / 16, FenceR1 = 9f / 16;    // rail cross-section
+    static readonly Box[][] FenceCollision = new Box[16][];
+    static readonly Box[][] FenceMesh = new Box[16][];
+
+    /// What a fence arm reaches out to: other fences, glass, and any
+    /// full-cube block.
+    public static bool FenceConnects(int id) =>
+        ShapeOf(id) == BlockShape.Fence || id == Core.BlockId.Glass || IsOpaque(id);
+
+    public static Box[] FenceCollisionBoxes(int mask) => FenceCollision[mask & 15];
+    public static Box[] FenceMeshBoxes(int mask) => FenceMesh[mask & 15];
+
+    /// An arm from the post to the cell edge in a facing direction, spanning
+    /// y0..y1 with the given cross-section half-width bounds.
+    static Box FenceArm(int facing, float a0, float a1, float y0, float y1) => facing switch
+    {
+        0 => new Box(a0, y0, 0, a1, y1, FenceP0),
+        1 => new Box(FenceP1, y0, a0, 1, y1, a1),
+        2 => new Box(a0, y0, FenceP1, a1, y1, 1),
+        _ => new Box(0, y0, a0, FenceP0, y1, a1),
+    };
+
+    static void BuildFenceBoxes()
+    {
+        for (int mask = 0; mask < 16; mask++)
+        {
+            var coll = new List<Box> { new(FenceP0, 0, FenceP0, FenceP1, 1, FenceP1) };
+            var mesh = new List<Box>(coll);
+            for (int f = 0; f < 4; f++)
+            {
+                if ((mask & (1 << f)) == 0) continue;
+                coll.Add(FenceArm(f, FenceP0, FenceP1, 0, 1)); // full wall keeps animals penned
+                mesh.Add(FenceArm(f, FenceR0, FenceR1, 6f / 16, 9f / 16));
+                mesh.Add(FenceArm(f, FenceR0, FenceR1, 12f / 16, 15f / 16));
+            }
+            FenceCollision[mask] = coll.ToArray();
+            FenceMesh[mask] = mesh.ToArray();
+        }
+    }
+
     static void BuildCollisionBoxes()
     {
+        BuildFenceBoxes();
         foreach (var (id, def) in Blocks)
         {
             switch (def.Shape)
@@ -292,6 +356,11 @@ public static class BlockRegistry
                     break;
                 case BlockShape.Chest:
                     _boxes[id] = new[] { new Box(1f / 16, 0, 1f / 16, 15f / 16, 14f / 16, 15f / 16) };
+                    break;
+                case BlockShape.Fence:
+                    // context-free fallback (drops, icons); live physics and
+                    // meshing use the connection-aware Fence*Boxes instead
+                    _boxes[id] = new[] { new Box(FenceP0, 0, FenceP0, FenceP1, 1, FenceP1) };
                     break;
             }
         }

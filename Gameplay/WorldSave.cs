@@ -15,6 +15,7 @@ public sealed class SaveData
     public string Name = "World";
     public int Seed;
     public GameMode Mode;
+    public float TimeOfDay = 0.25f; // pre-VXW3 saves load at noon
     public Vector3 PlayerPos;
     public float Yaw, Pitch, Health, Hunger, Saturation, Exhaustion, Air;
     public bool Flying;
@@ -38,8 +39,11 @@ public sealed record SaveInfo(string Path, string Name, int Seed, DateTime Modif
 /// built, not how far was explored.
 public static class WorldSave
 {
-    const string Magic = "VXW2";
+    const string Magic = "VXW3";
+    const string MagicV2 = "VXW2";     // pre-day/night format: no time-of-day field
     const string LegacyMagic = "VXW1"; // pre-menu format: no world name field
+
+    static bool KnownMagic(string m) => m is Magic or MagicV2 or LegacyMagic;
 
     public static string SavesDir => Path.Combine(AppContext.BaseDirectory, "saves");
 
@@ -76,7 +80,7 @@ public static class WorldSave
             using var r = new BinaryReader(gz);
             // VXW1 predates world names; those saves show their file name
             string magic = new string(r.ReadChars(4));
-            if (magic != Magic && magic != LegacyMagic) return null;
+            if (!KnownMagic(magic)) return null;
             string name = magic == LegacyMagic ? Path.GetFileNameWithoutExtension(path) : r.ReadString();
             int seed = r.ReadInt32();
             return new SaveInfo(path, name, seed, File.GetLastWriteTime(path));
@@ -90,7 +94,7 @@ public static class WorldSave
     // ------------------------------------------------------------- save
 
     public static void Save(string path, string name, GameWorld world, Fluids fluids, BlockEntities entities,
-        Player player, Inventory inventory, GameMode mode, BoatManager boats, DropManager drops)
+        Player player, Inventory inventory, GameMode mode, BoatManager boats, DropManager drops, float timeOfDay)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path));
         string tmp = path + ".tmp";
@@ -102,6 +106,7 @@ public static class WorldSave
             w.Write(name);
             w.Write(Constants.Seed);
             w.Write((byte)mode);
+            w.Write(timeOfDay);
 
             WriteVector(w, player.Pos);
             w.Write(player.Yaw);
@@ -185,13 +190,14 @@ public static class WorldSave
             using var r = new BinaryReader(gz);
 
             string magic = new string(r.ReadChars(4));
-            if (magic != Magic && magic != LegacyMagic) return null;
+            if (!KnownMagic(magic)) return null;
             var s = new SaveData
             {
                 Name = magic == LegacyMagic ? Path.GetFileNameWithoutExtension(path) : r.ReadString(),
                 Seed = r.ReadInt32(),
                 Mode = (GameMode)r.ReadByte(),
             };
+            if (magic == Magic) s.TimeOfDay = r.ReadSingle();
 
             s.PlayerPos = ReadVector(r);
             s.Yaw = r.ReadSingle();

@@ -44,6 +44,16 @@ public static class BlockId
     public const int FlowerRed = 17;
     public const int Snow = 18;      // tundra / snowy mountain surface
     public const int DryGrass = 19;  // savanna surface
+    public const int BirchWood = 20;     // white-barked birch forest trunk
+    public const int SpruceWood = 21;    // dark taiga trunk
+    public const int Cactus = 22;        // desert / badlands column plant
+    public const int Ice = 23;           // frozen ocean surface
+    public const int RedSand = 24;       // badlands surface
+    public const int Terracotta = 25;    // badlands strata (orange)
+    public const int TerracottaRed = 26; // badlands strata (dark red band)
+    public const int Mycelium = 27;      // mushroom island surface
+    public const int MushroomCap = 28;   // giant mushroom cap (red, white-spotted)
+    public const int MushroomStem = 29;  // giant mushroom stem
 
     // Oriented / stateful blocks: each state is its own id (chunks store one
     // byte per cell, no metadata channel). The first id of a family is the
@@ -60,6 +70,8 @@ public static class BlockId
     public const int Trapdoor = 66;        // 66..73: +4 open, +facing
     public const int Chest = 74;           // 74..77  facing = front
     public const int Furnace = 78;         // 78..85: +4 lit, +facing
+    public const int Fence = 86;           // arms connect to neighbours at mesh time
+    public const int Glass = 87;           // cutout-transparent cube
 }
 
 /// Non-placeable item types (share the same id space as blocks).

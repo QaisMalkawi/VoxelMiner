@@ -6,4 +6,6 @@ public enum Biome
 {
     Ocean, River, Beach, Plains, Forest, Desert, Mountains,
     Savanna, Swamp, Jungle, Tundra, SnowyMountains,
+    DeepOcean, FrozenOcean, Taiga, SnowyTaiga,
+    BirchForest, DarkForest, FlowerForest, Badlands, Mushroom,
 }

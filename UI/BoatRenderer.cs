@@ -12,10 +12,11 @@ public static class BoatRenderer
     static readonly Vector4 Hull = new(0.55f, 0.38f, 0.20f, 1f);
     static readonly Vector4 Trim = new(0.42f, 0.28f, 0.14f, 1f);
 
-    public static void Draw(Renderer renderer, Mesh cube, TextureHandle white, IEnumerable<Boat> boats)
+    public static void Draw(Renderer renderer, Mesh cube, TextureHandle white, IEnumerable<Boat> boats, Frustum frustum)
     {
         foreach (var boat in boats)
         {
+            if (!frustum.SphereVisible(boat.Pos, 2f)) continue;
             var baseTransform = Matrix4x4.CreateRotationY(boat.Yaw)
                               * Matrix4x4.CreateTranslation(boat.Pos);
             void Box(float sx, float sy, float sz, float ox, float oy, float oz, Vector4 color) =>

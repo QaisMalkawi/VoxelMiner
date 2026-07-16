@@ -45,6 +45,10 @@ public sealed class GameHud
         Core.BlockId.PlankSlabVert, Core.BlockId.StoneSlabVert,
         Core.BlockId.Door, Core.BlockId.Trapdoor, Core.BlockId.Chest, Core.BlockId.Furnace,
         Core.BlockId.Snow, Core.BlockId.DryGrass,
+        Core.BlockId.BirchWood, Core.BlockId.SpruceWood, Core.BlockId.Cactus, Core.BlockId.Ice,
+        Core.BlockId.RedSand, Core.BlockId.Terracotta, Core.BlockId.TerracottaRed,
+        Core.BlockId.Mycelium, Core.BlockId.MushroomCap, Core.BlockId.MushroomStem,
+        Core.BlockId.Fence, Core.BlockId.Glass,
     };
 
     float _screenW, _screenH;

@@ -51,10 +51,11 @@ public sealed class ParticleSystem
         }
     }
 
-    public void Draw(Renderer renderer, Mesh cube, TextureHandle white)
+    public void Draw(Renderer renderer, Mesh cube, TextureHandle white, Frustum frustum)
     {
         foreach (var p in _particles)
         {
+            if (!frustum.SphereVisible(p.Pos, 0.25f)) continue;
             var model = Matrix4x4.CreateScale(0.12f)
                       * Matrix4x4.CreateRotationX(p.RotX)
                       * Matrix4x4.CreateRotationY(p.RotY)

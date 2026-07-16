@@ -158,23 +158,30 @@ public unsafe sealed class Renderer : IDisposable
         _boundTexture = texture;
     }
 
-    public void DrawMesh(Mesh mesh, in Matrix4x4 model, Vector4 tint, bool textured, TextureHandle texture)
+    /// Global brightness for meshes whose light isn't baked per vertex
+    /// (animals, boats, drops, particles). The frame loop sets it from the
+    /// time-of-day daylight so entities dim at night with the world.
+    public float EntityLight = 1f;
+
+    public void DrawMesh(Mesh mesh, in Matrix4x4 model, Vector4 tint, bool textured, TextureHandle texture, bool lightmap = false)
     {
         BindPipeline(Pipelines.World);
         BindTexture(texture, Pipelines.WorldLayout);
-        DrawMeshInner(mesh, model, tint, textured);
+        DrawMeshInner(mesh, model, tint, textured, lightmap);
     }
 
     public void DrawLineMesh(Mesh mesh, in Matrix4x4 model, Vector4 tint, TextureHandle texture)
     {
         BindPipeline(Pipelines.Lines);
         BindTexture(texture, Pipelines.WorldLayout);
-        DrawMeshInner(mesh, model, tint, textured: false);
+        DrawMeshInner(mesh, model, tint, textured: false, lightmap: false);
     }
 
-    void DrawMeshInner(Mesh mesh, in Matrix4x4 model, Vector4 tint, bool textured)
+    void DrawMeshInner(Mesh mesh, in Matrix4x4 model, Vector4 tint, bool textured, bool lightmap)
     {
-        var push = new WorldPush { Model = model, Tint = tint, Params = new Vector4(textured ? 1 : 0, 0, 0, 0) };
+        // lightmapped meshes get daylight in the shader; plain meshes get it here
+        if (!lightmap) tint = new Vector4(tint.X * EntityLight, tint.Y * EntityLight, tint.Z * EntityLight, tint.W);
+        var push = new WorldPush { Model = model, Tint = tint, Params = new Vector4(textured ? 1 : 0, lightmap ? 1 : 0, 0, 0) };
         Ctx.Vk.CmdPushConstants(_cmd, Pipelines.WorldLayout,
             ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit, 0, Pipelines.WorldPushSize, &push);
         var vertexBuffer = mesh.Vertices.Buffer;
