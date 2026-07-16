@@ -15,9 +15,9 @@ using static VoxelMiner.Core.Constants;
 /// Water lives in separate translucent meshes drawn after everything opaque.
 public sealed class WorldRenderer
 {
-    const int MaxGenJobs = 6;            // terrain generations in flight
-    const int MaxMeshJobs = 2;           // mesh builds in flight
-    const int AdoptBudgetPerFrame = 2;   // chunk adoptions (light init) per frame
+    static readonly int MaxGenJobs = Math.Clamp(Environment.ProcessorCount - 2, 4, 10); // terrain generations in flight
+    const int MaxMeshJobs = 3;           // mesh builds in flight
+    const double AdoptBudgetMs = 2.0;    // main-thread ms per frame for adoptions (light init)
     const int UploadBudgetPerFrame = 4;  // GPU mesh uploads per frame
     static readonly Vector4 WaterTint = new(1f, 1f, 1f, 0.62f);
 
@@ -105,15 +105,17 @@ public sealed class WorldRenderer
         UnloadFar(ccx, ccz);
     }
 
-    /// Finished terrain results: install data + run the light init, a couple
-    /// per frame (lighting is the main-thread part of the cost).
+    /// Finished terrain results: install data + run the light init (the
+    /// main-thread part of the cost). Time-budgeted rather than counted, so
+    /// stream-in takes as many chunks as fit without ever hitching a frame.
     void AdoptGenerated()
     {
-        int budget = AdoptBudgetPerFrame;
-        while (budget > 0 && _genDone.TryDequeue(out var gen))
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        long budget = (long)(AdoptBudgetMs / 1000.0 * System.Diagnostics.Stopwatch.Frequency);
+        while (System.Diagnostics.Stopwatch.GetTimestamp() - start < budget && _genDone.TryDequeue(out var gen))
         {
             _genPending.Remove(gen.Key);
-            if (_world.AdoptChunk(gen.Key.Cx, gen.Key.Cz, gen.Data)) budget--;
+            _world.AdoptChunk(gen.Key.Cx, gen.Key.Cz, gen.Data);
         }
     }
 

@@ -79,6 +79,10 @@ public sealed class LightEngine
 
     /// Seeds and propagates light for a freshly generated chunk, pulling in
     /// light from any already-loaded neighbours (and pushing back into them).
+    /// Runs on the main thread during chunk adoption, so it seeds the BFS
+    /// sparsely: naively enqueueing every open-sky cell (~40k per chunk) made
+    /// streaming stutter; only cells that can actually push light somewhere
+    /// dim enter the queue.
     public void InitChunk(int cx, int cz)
     {
         var map = new byte[ChunkSize * ChunkSize * WorldHeight];
@@ -86,29 +90,102 @@ public sealed class LightEngine
         var data = _world.Chunks[(cx, cz)];
         _touched.Clear();
 
-        // direct sky columns: 15 from the top until the first absorbing block
         int bx = cx * ChunkSize, bz = cz * ChunkSize;
+
+        // per-column y of the first light-absorbing cell from the top
+        // (-1 = column fully open); everything strictly above is direct sky
+        var blocked = new int[ChunkSize * ChunkSize];
         for (int lz = 0; lz < ChunkSize; lz++)
             for (int lx = 0; lx < ChunkSize; lx++)
-                for (int y = WorldHeight - 1; y >= 0; y--)
-                {
-                    if (BlockRegistry.LightOpacity(data[BlockIndex(lx, y, lz)]) > 0) break;
+            {
+                int y = WorldHeight - 1;
+                for (; y >= 0 && Opacity[data[BlockIndex(lx, y, lz)]] == 0; y--)
                     map[BlockIndex(lx, y, lz)] = MaxLight << 4;
+                blocked[lz * ChunkSize + lx] = y;
+            }
+
+        // A direct-sky cell only matters as a BFS source if a horizontally
+        // adjacent column is blocked at or above it (that neighbour cell is
+        // dim); compute each column's exposure ceiling from the 4-neighbour
+        // blocked heights, looking across the border into loaded chunks.
+        var exposed = new int[ChunkSize * ChunkSize];
+        for (int lz = 0; lz < ChunkSize; lz++)
+            for (int lx = 0; lx < ChunkSize; lx++)
+            {
+                int e = -1;
+                if (lx > 0) e = Math.Max(e, blocked[lz * ChunkSize + lx - 1]);
+                if (lx < ChunkSize - 1) e = Math.Max(e, blocked[lz * ChunkSize + lx + 1]);
+                if (lz > 0) e = Math.Max(e, blocked[(lz - 1) * ChunkSize + lx]);
+                if (lz < ChunkSize - 1) e = Math.Max(e, blocked[(lz + 1) * ChunkSize + lx]);
+                exposed[lz * ChunkSize + lx] = e;
+            }
+        void Ring(int ncx, int ncz, bool xEdge, int nEdge, int myEdge)
+        {
+            if (!_world.Chunks.TryGetValue((ncx, ncz), out var nd)) return;
+            for (int i = 0; i < ChunkSize; i++)
+            {
+                int nlx = xEdge ? nEdge : i, nlz = xEdge ? i : nEdge;
+                int y = WorldHeight - 1;
+                while (y >= 0 && Opacity[nd[BlockIndex(nlx, y, nlz)]] == 0) y--;
+                int idx = xEdge ? i * ChunkSize + myEdge : myEdge * ChunkSize + i;
+                exposed[idx] = Math.Max(exposed[idx], y);
+            }
+        }
+        Ring(cx - 1, cz, xEdge: true, ChunkSize - 1, 0);
+        Ring(cx + 1, cz, xEdge: true, 0, ChunkSize - 1);
+        Ring(cx, cz - 1, xEdge: false, ChunkSize - 1, 0);
+        Ring(cx, cz + 1, xEdge: false, 0, ChunkSize - 1);
+
+        // seed the exposed band of each column, plus its lowest sky cell so
+        // light keeps pushing down through leaves and water
+        for (int lz = 0; lz < ChunkSize; lz++)
+            for (int lx = 0; lx < ChunkSize; lx++)
+            {
+                int b = blocked[lz * ChunkSize + lx];
+                if (b + 1 >= WorldHeight) continue; // blocked at the very top: no sky cells
+                _spread.Enqueue((bx + lx, b + 1, bz + lz));
+                int top = Math.Min(exposed[lz * ChunkSize + lx], WorldHeight - 1);
+                for (int y = b + 2; y <= top; y++)
                     _spread.Enqueue((bx + lx, y, bz + lz));
-                }
+            }
+        Propagate(sky: true);
         SeedBorders(cx, cz, sky: true);
         Propagate(sky: true);
 
+        // chunks restored from a save can carry emitters (torches, lit
+        // furnaces); light maps aren't persisted, so re-seed them here
+        for (int i = 0; i < data.Length; i++)
+        {
+            int em = Emission[data[i]];
+            if (em == 0) continue;
+            map[i] = (byte)((map[i] & 0xF0) | em);
+            _spread.Enqueue((bx + (i & 15), i >> 8, bz + ((i >> 4) & 15)));
+        }
         SeedBorders(cx, cz, sky: false);
         Propagate(sky: false);
 
         Flush(exclude: (cx, cz)); // this chunk has no mesh yet
     }
 
-    /// Enqueues lit border cells of loaded neighbours so their light flows in.
+    /// LightEmission/LightOpacity per block id, tabulated once — InitChunk
+    /// and the BFS consult them for huge numbers of cells, where the
+    /// registry's per-call dictionary lookups would add up.
+    static readonly byte[] Emission = BuildTable(BlockRegistry.LightEmission);
+    static readonly byte[] Opacity = BuildTable(BlockRegistry.LightOpacity);
+
+    static byte[] BuildTable(Func<int, int> f)
+    {
+        var t = new byte[256];
+        for (int id = 0; id < 256; id++) t[id] = (byte)f(id);
+        return t;
+    }
+
+    /// Enqueues lit border cells of loaded neighbours so their light flows
+    /// in — but only where the receiving cell is dimmer than what the border
+    /// cell could give it, so open-sky borders (both sides 15) cost nothing.
     void SeedBorders(int cx, int cz, bool sky)
     {
-        void SeedColumnStrip(int ncx, int ncz, bool xEdge, int edge)
+        void SeedColumnStrip(int ncx, int ncz, bool xEdge, int edge, int dx, int dz)
         {
             if (!_maps.ContainsKey((ncx, ncz))) return;
             int nbx = ncx * ChunkSize, nbz = ncz * ChunkSize;
@@ -117,13 +194,16 @@ public sealed class LightEngine
                 {
                     int gx = xEdge ? nbx + edge : nbx + i;
                     int gz = xEdge ? nbz + i : nbz + edge;
-                    if (Get(sky, gx, y, gz) > 1) _spread.Enqueue((gx, y, gz));
+                    int l = Get(sky, gx, y, gz);
+                    if (l <= 1) continue;
+                    if (Get(sky, gx + dx, y, gz + dz) >= l - 1) continue; // visit would be a no-op
+                    _spread.Enqueue((gx, y, gz));
                 }
         }
-        SeedColumnStrip(cx - 1, cz, xEdge: true, ChunkSize - 1);
-        SeedColumnStrip(cx + 1, cz, xEdge: true, 0);
-        SeedColumnStrip(cx, cz - 1, xEdge: false, ChunkSize - 1);
-        SeedColumnStrip(cx, cz + 1, xEdge: false, 0);
+        SeedColumnStrip(cx - 1, cz, xEdge: true, ChunkSize - 1, +1, 0);
+        SeedColumnStrip(cx + 1, cz, xEdge: true, 0, -1, 0);
+        SeedColumnStrip(cx, cz - 1, xEdge: false, ChunkSize - 1, 0, +1);
+        SeedColumnStrip(cx, cz + 1, xEdge: false, 0, 0, -1);
     }
 
     // ------------------------------------------------------------- edits
@@ -199,7 +279,7 @@ public sealed class LightEngine
             {
                 int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
                 if (ny < 0 || ny >= WorldHeight) continue;
-                int op = BlockRegistry.LightOpacity(_world.GetBlock(nx, ny, nz));
+                int op = Opacity[_world.GetBlock(nx, ny, nz)];
                 if (op >= 15) continue;
                 int nl = sky && d == Down && l == MaxLight && op == 0
                     ? MaxLight
