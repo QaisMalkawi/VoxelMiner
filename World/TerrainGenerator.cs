@@ -316,6 +316,7 @@ public sealed class TerrainGenerator
         double r = Noise.Hash3(gx + 51, gy + 77, gz + 91);
         if (gy < 6 && r < 0.004) return BlockId.Diamond;
         if (gy < 16 && r < 0.010) return BlockId.Gold;
+        if (gy < 20 && r < 0.017) return BlockId.RedstoneOre;
         if (gy < 32 && r < 0.024) return BlockId.Iron;
         if (gy < 48 && r < 0.045) return BlockId.Coal;
         return BlockId.Stone;

@@ -12,7 +12,9 @@ public sealed record FoodSpec(int Points, float Saturation);
 
 public sealed record ItemDef(string Name, int Stack, int Durability = 0, ToolSpec Tool = null, FoodSpec Food = null);
 
-public sealed record Recipe((int Id, int Count) Out, (int Id, int Count)[] In);
+/// <param name="Hand">Craftable straight from the inventory; everything else
+/// needs a crafting table (like Minecraft's 2x2 vs 3x3 grid).</param>
+public sealed record Recipe((int Id, int Count) Out, (int Id, int Count)[] In, bool Hand = false);
 
 /// Non-block items (tools, crafting materials) and crafting recipes.
 public static class ItemRegistry
@@ -35,21 +37,25 @@ public static class ItemRegistry
         [ItemId.CookedPigMeat]    = new("Cooked Pig Meat",     64, Food: new FoodSpec(8, 12.8f)),
         [ItemId.CookedSheepMeat]  = new("Cooked Sheep Meat",   64, Food: new FoodSpec(6, 9.6f)),
         [ItemId.CookedChickenMeat]= new("Cooked Chicken Meat", 64, Food: new FoodSpec(6, 7.2f)),
+        [ItemId.Coal]      = new("Coal", 64),
+        [ItemId.IronIngot] = new("Iron Ingot", 64),
+        [ItemId.GoldIngot] = new("Gold Ingot", 64),
     };
 
     public static readonly Recipe[] Recipes =
     {
-        new((BlockId.Planks, 4),      new[] { (BlockId.Wood, 1) }),
-        new((BlockId.Planks, 4),      new[] { (BlockId.BirchWood, 1) }),
-        new((BlockId.Planks, 4),      new[] { (BlockId.SpruceWood, 1) }),
-        new((ItemId.Stick, 4),        new[] { (BlockId.Planks, 2) }),
+        new((BlockId.Planks, 4),      new[] { (BlockId.Wood, 1) }, Hand: true),
+        new((BlockId.Planks, 4),      new[] { (BlockId.BirchWood, 1) }, Hand: true),
+        new((BlockId.Planks, 4),      new[] { (BlockId.SpruceWood, 1) }, Hand: true),
+        new((ItemId.Stick, 4),        new[] { (BlockId.Planks, 2) }, Hand: true),
+        new((BlockId.CraftingTable, 1), new[] { (BlockId.Planks, 4) }, Hand: true),
         new((ItemId.WoodPick, 1),     new[] { (BlockId.Planks, 3), (ItemId.Stick, 2) }),
         new((ItemId.StonePick, 1),    new[] { (BlockId.Stone, 3), (ItemId.Stick, 2) }),
-        new((ItemId.IronPick, 1),     new[] { (BlockId.Iron, 3), (ItemId.Stick, 2) }),
+        new((ItemId.IronPick, 1),     new[] { (ItemId.IronIngot, 3), (ItemId.Stick, 2) }),
         new((ItemId.DiamondPick, 1),  new[] { (BlockId.Diamond, 3), (ItemId.Stick, 2) }),
         new((ItemId.Axe, 1),          new[] { (BlockId.Planks, 3), (ItemId.Stick, 2) }),
         new((ItemId.Shovel, 1),       new[] { (BlockId.Planks, 1), (ItemId.Stick, 2) }),
-        new((BlockId.Torch, 4),       new[] { (BlockId.Coal, 1), (ItemId.Stick, 1) }),
+        new((BlockId.Torch, 4),       new[] { (ItemId.Coal, 1), (ItemId.Stick, 1) }, Hand: true),
         new((ItemId.Boat, 1),         new[] { (BlockId.Planks, 5) }),
         new((BlockId.PlankStairs, 4), new[] { (BlockId.Planks, 6) }),
         new((BlockId.StoneStairs, 4), new[] { (BlockId.Stone, 6) }),
@@ -62,6 +68,15 @@ public static class ItemRegistry
         new((BlockId.Chest, 1),       new[] { (BlockId.Planks, 8) }),
         new((BlockId.Furnace, 1),     new[] { (BlockId.Stone, 8) }),
         new((BlockId.Fence, 3),       new[] { (BlockId.Planks, 4), (ItemId.Stick, 2) }),
+        new((BlockId.Lever, 1),       new[] { (ItemId.Stick, 1), (BlockId.Stone, 1) }),
+        new((BlockId.Button, 1),      new[] { (BlockId.Stone, 1) }),
+        new((BlockId.Repeater, 1),    new[] { (BlockId.Stone, 3), (BlockId.Torch, 2), (BlockId.Dust, 1) }),
+        new((BlockId.Comparator, 1),  new[] { (BlockId.Stone, 3), (BlockId.Torch, 3), (BlockId.Dust, 1) }),
+        new((BlockId.Observer, 1),    new[] { (BlockId.Stone, 6), (BlockId.Dust, 2) }),
+        new((BlockId.Piston, 1),      new[] { (BlockId.Planks, 3), (BlockId.Stone, 4), (ItemId.IronIngot, 1), (BlockId.Dust, 1) }),
+        new((BlockId.Piston + 12, 1), new[] { (BlockId.Piston, 1), (BlockId.Slime, 1) }), // sticky piston
+        new((BlockId.Slime, 1),       new[] { (BlockId.Leaves, 4), (BlockId.Dust, 1) }),
+        new((BlockId.Honey, 1),       new[] { (BlockId.Sand, 4), (BlockId.Dust, 1) }),
     };
 
     public static string NameOf(int id) =>
@@ -94,11 +109,14 @@ public static class Smelting
         new(ItemId.RawChickenMeat, ItemId.CookedChickenMeat, 10f),
         new(BlockId.Sand, BlockId.Glass, 10f),
         new(BlockId.RedSand, BlockId.Glass, 10f),
+        new(BlockId.Coal, ItemId.Coal, 10f),
+        new(BlockId.Iron, ItemId.IronIngot, 10f),
+        new(BlockId.Gold, ItemId.GoldIngot, 10f),
     };
 
     public static readonly Dictionary<int, float> FuelSeconds = new()
     {
-        [BlockId.Coal] = 80f,
+        [ItemId.Coal] = 80f, // the smelted lump burns; raw ore doesn't
         [BlockId.Wood] = 15f,
         [BlockId.BirchWood] = 15f,
         [BlockId.SpruceWood] = 15f,

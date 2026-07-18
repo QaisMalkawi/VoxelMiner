@@ -166,8 +166,10 @@ public sealed class Player
         _eyeHeight += (targetEye - _eyeHeight) * MathF.Min(1f, dt * EyeLerpRate);
 
         InWater = WaterAt(world, 0.1f) || WaterAt(world, 1.0f);
+        int ground = GroundBlock(world);
         float speed = Flying ? FlySpeed * (mode == GameMode.Spectator ? SpectatorMultiplier : 1)
                     : (sprinting ? SprintSpeed : Sneaking ? SneakSpeed : WalkSpeed) * (InWater ? WaterSpeedFactor : 1f);
+        if (!Flying && OnGround && ground == Core.BlockId.Honey) speed *= 0.4f; // wading through honey
         float len = MathF.Max(MathF.Sqrt(input.Forward * input.Forward + input.Strafe * input.Strafe), 1f);
         float sy = MathF.Sin(Yaw), cy = MathF.Cos(Yaw);
         Vel.X = (input.Forward / len * -sy + input.Strafe / len * cy) * speed;
@@ -200,18 +202,37 @@ public sealed class Player
         ResolveHorizontal(world, dt, mode, axisX: true);
         ResolveHorizontal(world, dt, mode, axisX: false);
         if (!Flying && !InWater && Vel.Y < 0) FallDistance += -Vel.Y * dt;
+        float impactVel = Vel.Y; // vertical speed going into the floor collision
         OnGround = false;
         ResolveVertical(world, dt, mode);
 
         if (OnGround)
         {
-            // fall damage only on the landing transition; the distance resets
-            // every grounded frame so the tiny per-frame gravity velocity
-            // (applied then zeroed by the floor) can't accumulate into
-            // phantom fall damage while standing or walking
-            if (!wasOnGround && mode == GameMode.Survival && FallDistance > SafeFallBlocks + 0.5f)
-                Damage(MathF.Floor(FallDistance - SafeFallBlocks));
-            FallDistance = 0;
+            int landedOn = GroundBlock(world);
+            // slime bounces the landing back up (and eats the fall damage);
+            // honey absorbs most of it
+            if (!wasOnGround && landedOn == Core.BlockId.Slime && !Sneaking && impactVel < -6f)
+            {
+                Vel.Y = -impactVel * 0.65f;
+                OnGround = false;
+                FallDistance = 0;
+            }
+            else
+            {
+                // fall damage only on the landing transition; the distance resets
+                // every grounded frame so the tiny per-frame gravity velocity
+                // (applied then zeroed by the floor) can't accumulate into
+                // phantom fall damage while standing or walking
+                float safe = landedOn switch
+                {
+                    Core.BlockId.Slime => float.PositiveInfinity, // soft landing even when sneaking
+                    Core.BlockId.Honey => SafeFallBlocks * 4f,
+                    _ => SafeFallBlocks,
+                };
+                if (!wasOnGround && mode == GameMode.Survival && FallDistance > safe + 0.5f)
+                    Damage(MathF.Floor(FallDistance - safe));
+                FallDistance = 0;
+            }
         }
 
         if (mode == GameMode.Survival)
@@ -332,6 +353,10 @@ public sealed class Player
             JustDied = true;
         }
     }
+
+    /// The block directly under the player's feet (slime/honey effects).
+    int GroundBlock(GameWorld world) => world.GetBlock(
+        (int)MathF.Floor(Pos.X), (int)MathF.Floor(Pos.Y - 0.05f), (int)MathF.Floor(Pos.Z));
 
     public bool IntersectsBlock(int x, int y, int z) =>
         x + 1 > Pos.X - Width && x < Pos.X + Width &&

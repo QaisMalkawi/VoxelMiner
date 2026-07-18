@@ -16,7 +16,7 @@ public unsafe sealed class GpuBuffer : IDisposable
     public GpuBuffer(VulkanContext ctx, ulong size, BufferUsageFlags usage)
     {
         _ctx = ctx;
-        Size = size;
+        Size = size = Math.Max(size, 4); // vkCreateBuffer forbids zero-size buffers
         ctx.CreateBuffer(size, usage,
             MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
             out Buffer, out Memory);

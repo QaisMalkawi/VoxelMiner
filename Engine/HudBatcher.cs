@@ -13,7 +13,7 @@ public sealed class HudBatcher
         public int VertexCount;
     }
 
-    const int FloatsPerVertex = 8;
+    public const int FloatsPerVertex = 8;
 
     public float[] Vertices = new float[65536];
     public int VertexFloats;

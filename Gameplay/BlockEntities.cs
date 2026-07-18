@@ -45,6 +45,25 @@ public sealed class BlockEntities
         return f;
     }
 
+    /// Comparator container reading, Minecraft's formula: empty = 0, else
+    /// 1 + (fill fraction * 14), where fill sums count/stack-size per slot.
+    public int ComparatorSignal(int x, int y, int z)
+    {
+        var shape = BlockRegistry.ShapeOf(_world.GetBlock(x, y, z));
+        var slots = shape == BlockShape.Chest ? _chests.GetValueOrDefault((x, y, z))
+            : shape == BlockShape.Furnace ? _furnaces.GetValueOrDefault((x, y, z))?.Slots : null;
+        if (slots == null) return 0;
+        float fill = 0;
+        bool any = false;
+        foreach (var s in slots)
+        {
+            if (s == null || s.Count <= 0) continue;
+            any = true;
+            fill += s.Count / (float)ItemRegistry.StackOf(s.Id);
+        }
+        return any ? (int)MathF.Floor(1 + fill / slots.Length * 14) : 0;
+    }
+
     // --------------------------------------------------------- persistence
 
     public IEnumerable<((int X, int Y, int Z) Pos, ItemStack[] Slots)> AllChests()

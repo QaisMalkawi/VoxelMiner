@@ -18,6 +18,9 @@ public sealed class GameWorld
     /// save file needs to carry (the rest regenerate from the seed).
     public readonly HashSet<(int Cx, int Cz)> EditedChunks = new();
     public event Action<int, int> ChunkChanged;
+    /// Raised for every individual block edit: (gx, gy, gz, oldId, newId).
+    /// The redstone simulation listens to drive component/observer updates.
+    public event Action<int, int, int, int, int> BlockChanged;
 
     public GameWorld(TerrainGenerator generator)
     {
@@ -83,6 +86,7 @@ public sealed class GameWorld
         data[i] = (byte)id;
         EditedChunks.Add((cx, cz));
         Lighting.OnBlockChanged(gx, gy, gz, old, id);
+        BlockChanged?.Invoke(gx, gy, gz, old, id);
 
         affected.Add((cx, cz));
         // edits on a border also invalidate the neighbouring chunk's mesh
@@ -111,6 +115,32 @@ public sealed class GameWorld
             var (dx, dz) = BlockRegistry.FacingDir(f);
             if (BlockRegistry.FenceConnects(GetBlock(gx + dx, gy, gz + dz))) mask |= 1 << f;
         }
+        return mask;
+    }
+
+    /// Directions a dust cell points (bit = facing 0..3): toward adjacent
+    /// dust (any of the three levels) and flat components. No connections =
+    /// a cross pointing everywhere; a single connection extends straight
+    /// through into a line, like Minecraft.
+    public int DustMaskAt(int gx, int gy, int gz)
+    {
+        int mask = 0;
+        for (int f = 0; f < 4; f++)
+        {
+            var (dx, dz) = BlockRegistry.FacingDir(f);
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                int nb = GetBlock(gx + dx, gy + dy, gz + dz);
+                if (BlockRegistry.ShapeOf(nb) == BlockShape.Dust || (dy == 0 && BlockRegistry.IsFlat(nb)))
+                {
+                    mask |= 1 << f;
+                    break;
+                }
+            }
+        }
+        if (mask == 0) return 15;
+        for (int f = 0; f < 4; f++)
+            if (mask == 1 << f) return mask | 1 << ((f + 2) & 3);
         return mask;
     }
 

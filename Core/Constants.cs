@@ -72,6 +72,20 @@ public static class BlockId
     public const int Furnace = 78;         // 78..85: +4 lit, +facing
     public const int Fence = 86;           // arms connect to neighbours at mesh time
     public const int Glass = 87;           // cutout-transparent cube
+
+    // Redstone. Ids encode the full state, same as other stateful families.
+    public const int RedstoneOre = 88;
+    public const int Dust = 89;          // 89..104: +power 0..15
+    public const int Lever = 105;        // 105..114: +attach*2 (0=floor, 1..4=wall N/E/S/W), +1 on
+    public const int Button = 115;       // 115..124: same layout, +1 = pressed
+    public const int Repeater = 125;     // 125..156: +facing, +(delay-1)*4, +16 powered
+    public const int Comparator = 157;   // 157..172: +facing, +4 subtract mode, +8 powered
+    public const int Observer = 173;     // 173..184: +facing 0..5 (4=up, 5=down), +6 powered
+    public const int Piston = 185;       // 185..208: +facing 0..5, +6 extended, +12 sticky
+    public const int PistonHead = 209;   // 209..220: +facing 0..5, +6 sticky
+    public const int Honey = 221;        // sticks to neighbours when moved; slows walkers
+    public const int Slime = 222;        // sticks to neighbours when moved; bounces landers
+    public const int CraftingTable = 223; // unlocks the advanced crafting recipes
 }
 
 /// Non-placeable item types (share the same id space as blocks).
@@ -94,4 +108,9 @@ public static class ItemId
     public const int CookedPigMeat = 100111;
     public const int CookedSheepMeat = 100112;
     public const int CookedChickenMeat = 100113;
+
+    // smelted from the raw ore blocks; recipes consume these, not ores
+    public const int Coal = 100114;
+    public const int IronIngot = 100115;
+    public const int GoldIngot = 100116;
 }

@@ -207,10 +207,15 @@ public unsafe sealed class Renderer : IDisposable
         var vertexBuffer = buffer.Buffer;
         ulong offset = 0;
         Ctx.Vk.CmdBindVertexBuffers(_cmd, 0, 1, in vertexBuffer, in offset);
+        // draws must never reference vertices past what fit in the buffer:
+        // the GPU reading out of bounds is a device-loss (TDR) crash
+        int maxVertices = HudBufferBytes / (HudBatcher.FloatsPerVertex * sizeof(float));
         foreach (var range in batcher.Ranges)
         {
+            int count = Math.Min(range.VertexCount, maxVertices - range.FirstVertex);
+            if (count <= 0) continue;
             BindTexture(range.Texture, Pipelines.HudLayout);
-            Ctx.Vk.CmdDraw(_cmd, (uint)range.VertexCount, 1, (uint)range.FirstVertex, 0);
+            Ctx.Vk.CmdDraw(_cmd, (uint)count, 1, (uint)range.FirstVertex, 0);
         }
     }
 

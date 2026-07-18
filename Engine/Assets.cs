@@ -59,7 +59,13 @@ public static class TextureGen
             BirchTile(tile), SpruceTile(tile), CactusTileTex(tile), IceTileTex(tile),
             RedSandTile(tile), TerracottaTile(tile, red: false), TerracottaTile(tile, red: true),
             MyceliumTile(tile, top: true), MyceliumTile(tile, top: false),
-            MushroomCapTileTex(tile), MushroomStemTile(tile), GlassTileTex(tile) };
+            MushroomCapTileTex(tile), MushroomStemTile(tile), GlassTileTex(tile),
+            DustTile(tile, 0), DustTile(tile, 1), DustTile(tile, 2), DustTile(tile, 3),
+            RedstoneOreTileTex(tile), LeverBaseTileTex(tile), NubTile(tile, on: false), NubTile(tile, on: true),
+            ObserverTile(tile, ObserverFace.Front), ObserverTile(tile, ObserverFace.Side),
+            ObserverTile(tile, ObserverFace.Back), ObserverTile(tile, ObserverFace.BackLit),
+            PistonSideTileTex(tile), PistonStickyTileTex(tile), HoneyTileTex(tile), SlimeTileTex(tile),
+            CraftingTile(tile, top: true), CraftingTile(tile, top: false) };
         int newW = width + generated.Length * tile;
         var pixels = new byte[newW * height * 4];
         for (int y = 0; y < height; y++)
@@ -480,6 +486,237 @@ public static class TextureGen
         return px;
     }
 
+    // ------------------------------------------------------------- redstone tiles
+
+    /// Redstone dust: noisy red, four brightness bands (0 = unpowered).
+    static byte[] DustTile(int size, int band)
+    {
+        var px = new byte[size * size * 4];
+        var (r, g, b) = band switch
+        {
+            0 => (78, 12, 6),
+            1 => (140, 22, 10),
+            2 => (200, 36, 18),
+            _ => (255, 60, 34),
+        };
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 911, y + 1471) * 30) - 15;
+                Put(px, size, x, y, Math.Clamp(r + v, 0, 255), Math.Clamp(g + v / 3, 0, 255), Math.Clamp(b + v / 4, 0, 255));
+            }
+        return px;
+    }
+
+    /// Stone with glowing red speckles.
+    static byte[] RedstoneOreTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                if (Core.Noise.Hash2(x / 2 + 331, y / 2 + 977) > 0.82)
+                    Put(px, size, x, y, 205, 30, 22);
+                else StonePixel(px, size, x, y, 128);
+            }
+        return px;
+    }
+
+    /// Rough cobble for lever bases.
+    static byte[] LeverBaseTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int cell = (int)(Core.Noise.Hash2(x / 4 + 71, y / 4 + 913) * 24) - 12;
+                int v = (int)(Core.Noise.Hash2(x + 577, y + 331) * 14) - 7;
+                int g = Math.Clamp(112 + cell + v, 0, 255);
+                Put(px, size, x, y, g, g, g);
+            }
+        return px;
+    }
+
+    /// Repeater/comparator indicator nub: a redstone-torch-like knob.
+    static byte[] NubTile(int size, bool on)
+    {
+        var px = new byte[size * size * 4];
+        var (r, g, b) = on ? (255, 70, 40) : (90, 16, 10);
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 41, y + 733) * 20) - 10;
+                Put(px, size, x, y, Math.Clamp(r + v, 0, 255), Math.Clamp(g + v / 3, 0, 255), Math.Clamp(b + v / 4, 0, 255));
+            }
+        return px;
+    }
+
+    enum ObserverFace { Front, Side, Back, BackLit }
+
+    /// Observer faces: front carries a dark sensor slit, sides an arrow
+    /// stripe, the back a redstone dot (bright while pulsing).
+    static byte[] ObserverTile(int size, ObserverFace face)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                StonePixel(px, size, x, y, y < size / 8 || y >= size - size / 8 ? 84 : 108);
+        switch (face)
+        {
+            case ObserverFace.Front: // sensor slit across the middle
+                for (int y = size * 6 / 16; y < size * 10 / 16; y++)
+                    for (int x = size * 2 / 16; x < size * 14 / 16; x++)
+                        Put(px, size, x, y, 30, 28, 30);
+                break;
+            case ObserverFace.Side: // direction stripe
+                for (int y = size * 7 / 16; y < size * 9 / 16; y++)
+                    for (int x = 0; x < size; x++)
+                        Put(px, size, x, y, 150, 150, 152);
+                break;
+            case ObserverFace.Back:
+            case ObserverFace.BackLit:
+                var (r, g, b) = face == ObserverFace.BackLit ? (255, 60, 34) : (86, 16, 10);
+                for (int y = size * 6 / 16; y < size * 10 / 16; y++)
+                    for (int x = size * 6 / 16; x < size * 10 / 16; x++)
+                        Put(px, size, x, y, r, g, b);
+                break;
+        }
+        return px;
+    }
+
+    /// Piston side: wooden face strip on top of stone body.
+    static byte[] PistonSideTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                if (y < size / 4)
+                {
+                    int v = (int)(Core.Noise.Hash2(x + 733, y + 57) * 18) - 9;
+                    Put(px, size, x, y, Math.Clamp(160 + v, 0, 255), Math.Clamp(125 + v, 0, 255), Math.Clamp(75 + v / 2, 0, 255));
+                }
+                else StonePixel(px, size, x, y, 104);
+            }
+        return px;
+    }
+
+    /// Sticky piston face: wood boards with a slime pad in the middle.
+    static byte[] PistonStickyTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        WoodBoards(px, size, 4, 160, 125, 75);
+        for (int y = size * 3 / 16; y < size * 13 / 16; y++)
+            for (int x = size * 3 / 16; x < size * 13 / 16; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 811, y + 373) * 20) - 10;
+                Put(px, size, x, y, Math.Clamp(96 + v, 0, 255), Math.Clamp(184 + v, 0, 255), Math.Clamp(84 + v, 0, 255));
+            }
+        return px;
+    }
+
+    /// Crafting table: the top carries a dark 3x3 work grid; the side shows
+    /// planks with two hanging tool silhouettes.
+    static byte[] CraftingTile(int size, bool top)
+    {
+        var px = new byte[size * size * 4];
+        WoodBoards(px, size, top ? 2 : 3, 160, 125, 75);
+        if (top)
+        {
+            int g0 = size * 3 / 16, g1 = size * 13 / 16;
+            int cell = (g1 - g0) / 3;
+            for (int i = 0; i <= 3; i++)
+            {
+                for (int t = g0; t <= g1; t++)
+                {
+                    Put(px, size, g0 + i * cell, t, 74, 52, 30);
+                    Put(px, size, t, g0 + i * cell, 74, 52, 30);
+                }
+            }
+        }
+        else
+        {
+            void Tool(int cx, int r, int g, int b) // small hanging silhouette
+            {
+                for (int y = size * 4 / 16; y < size * 7 / 16; y++)
+                    for (int x = cx; x < cx + size * 3 / 16; x++)
+                        Put(px, size, x, y, r, g, b);
+                for (int y = size * 7 / 16; y < size * 11 / 16; y++)
+                    Put(px, size, cx + size * 3 / 32, y, 96, 68, 38);
+            }
+            Tool(size * 2 / 16, 176, 176, 182);  // iron tool head
+            Tool(size * 10 / 16, 150, 108, 60);  // wooden tool head
+        }
+        return px;
+    }
+
+    public static byte[] CraftingTableIcon(int size = 16) => CraftingTile(size, top: true);
+
+    /// 16x16 icon: an angular coal lump.
+    public static byte[] CoalIcon(int size = 16)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 4; y < 13; y++)
+            for (int x = 3; x < 13; x++)
+            {
+                // ragged silhouette
+                if (Core.Noise.Hash2(x / 2 + 11, y / 2 + 83) > 0.88) continue;
+                if ((x == 3 || x == 12) && (y == 4 || y == 12)) continue;
+                int v = (int)(Core.Noise.Hash2(x + 31, y + 57) * 26) - 13;
+                bool sheen = Core.Noise.Hash2(x + 7, y + 3) > 0.85;
+                int g = Math.Clamp((sheen ? 84 : 46) + v, 0, 255);
+                Put(px, size, x, y, g, g, g + 2);
+            }
+        return px;
+    }
+
+    /// 16x16 icon: a metal ingot bar with a lit top face.
+    public static byte[] IngotIcon(int r, int g, int b, int size = 16)
+    {
+        var px = new byte[size * size * 4];
+        void Shade(int x, int y, float f) =>
+            Put(px, size, x, y,
+                Math.Clamp((int)(r * f), 0, 255), Math.Clamp((int)(g * f), 0, 255), Math.Clamp((int)(b * f), 0, 255));
+        for (int y = 6; y < 12; y++)         // front face, sheared right with depth
+            for (int x = 2 + (11 - y) / 2; x < 12 + (11 - y) / 2; x++)
+                Shade(x, y, 1f);
+        for (int x = 5; x < 15; x++) Shade(x, 5, 1.35f);  // top edge highlight
+        for (int x = 4; x < 14; x++) Shade(x, 6, 1.2f);
+        for (int y = 6; y < 12; y++) Shade(2 + (11 - y) / 2, y, 0.7f); // left bevel
+        for (int x = 2; x < 12; x++) Shade(x, 11, 0.6f);  // bottom shadow
+        return px;
+    }
+
+    /// Amber honey with lighter drips.
+    static byte[] HoneyTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 337, y + 6151) * 22) - 11;
+                bool blob = Core.Noise.Hash2(x / 3 + 17, y / 3 + 449) > 0.8;
+                if (blob) Put(px, size, x, y, Math.Clamp(246 + v, 0, 255), Math.Clamp(196 + v, 0, 255), Math.Clamp(88 + v, 0, 255));
+                else Put(px, size, x, y, Math.Clamp(224 + v, 0, 255), Math.Clamp(148 + v, 0, 255), Math.Clamp(40 + v / 2, 0, 255));
+            }
+        return px;
+    }
+
+    /// Green slime with a lighter inner square.
+    static byte[] SlimeTileTex(int size)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                bool inner = x >= size / 4 && x < size * 3 / 4 && y >= size / 4 && y < size * 3 / 4;
+                int v = (int)(Core.Noise.Hash2(x + 4451, y + 227) * 16) - 8;
+                if (inner) Put(px, size, x, y, Math.Clamp(128 + v, 0, 255), Math.Clamp(210 + v, 0, 255), Math.Clamp(116 + v, 0, 255));
+                else Put(px, size, x, y, Math.Clamp(96 + v, 0, 255), Math.Clamp(178 + v, 0, 255), Math.Clamp(88 + v, 0, 255));
+            }
+        return px;
+    }
+
     static void StonePixel(byte[] px, int size, int x, int y, int baseGray)
     {
         int v = (int)(Core.Noise.Hash2(x + 977, y + 389) * 26) - 13;
@@ -830,6 +1067,97 @@ public static class TextureGen
     public static byte[] MushroomCapIcon(int size = 16) => MushroomCapTileTex(size);
     public static byte[] MushroomStemIcon(int size = 16) => MushroomStemTile(size);
     public static byte[] GlassIcon(int size = 16) => GlassTileTex(size);
+    public static byte[] RedstoneOreIcon(int size = 16) => RedstoneOreTileTex(size);
+    public static byte[] ObserverIcon(int size = 16) => ObserverTile(size, ObserverFace.Front);
+    public static byte[] PistonIcon(int size = 16) => PistonSideTileTex(size);
+    public static byte[] StickyPistonIcon(int size = 16) => PistonStickyTileTex(size);
+    public static byte[] HoneyIcon(int size = 16) => HoneyTileTex(size);
+    public static byte[] SlimeIcon(int size = 16) => SlimeTileTex(size);
+
+    /// 16x16 icon: a pinch of redstone dust (red cross of speckles).
+    public static byte[] DustIcon(int size = 16)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                bool arm = (x >= 6 && x <= 9) || (y >= 6 && y <= 9);
+                if (!arm || Core.Noise.Hash2(x + 3, y + 87) > 0.75) continue;
+                int v = (int)(Core.Noise.Hash2(x + 55, y + 21) * 40) - 20;
+                Put(px, size, x, y, Math.Clamp(215 + v, 0, 255), Math.Clamp(40 + v / 3, 0, 255), Math.Clamp(24 + v / 4, 0, 255));
+            }
+        return px;
+    }
+
+    /// 16x16 icon: cobble base with a tilted lever stick.
+    public static byte[] LeverIcon(int size = 16)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 12; y < 15; y++)
+            for (int x = 4; x < 12; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 71, y + 913) * 20) - 10;
+                int g = Math.Clamp(112 + v, 0, 255);
+                Put(px, size, x, y, g, g, g);
+            }
+        for (int i = 0; i < 8; i++) // stick leaning right
+        {
+            Put(px, size, 7 + i / 2, 12 - i, 146, 98, 42);
+            Put(px, size, 8 + i / 2, 12 - i, 118, 78, 34);
+        }
+        Put(px, size, 10, 4, 200, 60, 40); // tip
+        Put(px, size, 11, 4, 200, 60, 40);
+        Put(px, size, 10, 5, 200, 60, 40);
+        Put(px, size, 11, 5, 200, 60, 40);
+        return px;
+    }
+
+    /// 16x16 icon: small stone button plate.
+    public static byte[] ButtonIcon(int size = 16)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 5; y < 11; y++)
+            for (int x = 3; x < 13; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 977, y + 389) * 20) - 10;
+                bool edge = y == 5 || y == 10 || x == 3 || x == 12;
+                int g = Math.Clamp((edge ? 92 : 132) + v, 0, 255);
+                Put(px, size, x, y, g, g, g);
+            }
+        return px;
+    }
+
+    /// 16x16 icon: repeater top view (plate + two nubs); the comparator
+    /// variant shows three nubs in a triangle.
+    public static byte[] RepeaterIcon(bool comparator, int size = 16)
+    {
+        var px = new byte[size * size * 4];
+        for (int y = 2; y < 14; y++)
+            for (int x = 2; x < 14; x++)
+            {
+                int v = (int)(Core.Noise.Hash2(x + 41, y + 793) * 14) - 7;
+                int g = Math.Clamp(150 + v, 0, 255);
+                Put(px, size, x, y, g, g, g);
+            }
+        void Nub(int cx, int cy, bool lit)
+        {
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    Put(px, size, cx + dx, cy + dy, lit ? 255 : 110, lit ? 70 : 22, lit ? 40 : 14);
+        }
+        if (comparator)
+        {
+            Nub(5, 11, false);
+            Nub(11, 11, false);
+            Nub(8, 5, true);
+        }
+        else
+        {
+            Nub(8, 4, true);
+            Nub(8, 10, false);
+        }
+        return px;
+    }
 
     /// 16x16 icon: two fence posts joined by two rails.
     public static byte[] FenceIcon(int size = 16)
@@ -885,7 +1213,7 @@ public sealed class IconAtlas
     public IconAtlas(Renderer renderer, string iconDir)
     {
         const int cell = 16, cols = 9;
-        int cells = Files.Length + 41; // generated: torch, flowers, boat, tall grass, hearts, hunger, meats, new blocks
+        int cells = Files.Length + 56; // generated: torch, flowers, boat, tall grass, hearts, hunger, meats, new blocks, redstone, ingots
         int rows = (cells + cols - 1) / cols;
         int atlasW = cols * cell, atlasH = rows * cell;
         var pixels = new byte[atlasW * atlasH * 4];
@@ -955,6 +1283,21 @@ public sealed class IconAtlas
         Blit(Files.Length + 38, Core.BlockId.MushroomStem, TextureGen.MushroomStemIcon(), 16, 16);
         Blit(Files.Length + 39, Core.BlockId.Fence, TextureGen.FenceIcon(), 16, 16);
         Blit(Files.Length + 40, Core.BlockId.Glass, TextureGen.GlassIcon(), 16, 16);
+        Blit(Files.Length + 41, Core.BlockId.RedstoneOre, TextureGen.RedstoneOreIcon(), 16, 16);
+        Blit(Files.Length + 42, Core.BlockId.Dust, TextureGen.DustIcon(), 16, 16);
+        Blit(Files.Length + 43, Core.BlockId.Lever, TextureGen.LeverIcon(), 16, 16);
+        Blit(Files.Length + 44, Core.BlockId.Button, TextureGen.ButtonIcon(), 16, 16);
+        Blit(Files.Length + 45, Core.BlockId.Repeater, TextureGen.RepeaterIcon(comparator: false), 16, 16);
+        Blit(Files.Length + 46, Core.BlockId.Comparator, TextureGen.RepeaterIcon(comparator: true), 16, 16);
+        Blit(Files.Length + 47, Core.BlockId.Observer, TextureGen.ObserverIcon(), 16, 16);
+        Blit(Files.Length + 48, Core.BlockId.Piston, TextureGen.PistonIcon(), 16, 16);
+        Blit(Files.Length + 49, Core.BlockId.Piston + 12, TextureGen.StickyPistonIcon(), 16, 16); // sticky base id
+        Blit(Files.Length + 50, Core.BlockId.Honey, TextureGen.HoneyIcon(), 16, 16);
+        Blit(Files.Length + 51, Core.BlockId.Slime, TextureGen.SlimeIcon(), 16, 16);
+        Blit(Files.Length + 52, Core.BlockId.CraftingTable, TextureGen.CraftingTableIcon(), 16, 16);
+        Blit(Files.Length + 53, Core.ItemId.Coal, TextureGen.CoalIcon(), 16, 16);
+        Blit(Files.Length + 54, Core.ItemId.IronIngot, TextureGen.IngotIcon(206, 206, 212), 16, 16);
+        Blit(Files.Length + 55, Core.ItemId.GoldIngot, TextureGen.IngotIcon(240, 200, 70), 16, 16);
 
         Texture = new GpuTexture(renderer.Ctx, pixels, atlasW, atlasH);
         Handle = renderer.RegisterTexture(Texture);

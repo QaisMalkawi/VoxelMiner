@@ -41,6 +41,7 @@ public sealed class BlockInteraction
     public event Action EatTick;                            // chewing, while holding use on food
     public event Action Ate;
     public event Action<int, int, int, bool> ContainerOpened; // x, y, z, isFurnace
+    public event Action CraftingOpened;                       // right-clicked a crafting table
     public event Action DoorToggled;
 
     float _tickTimer, _placeTimer, _creativeBreakTimer;
@@ -353,6 +354,19 @@ public sealed class BlockInteraction
         }
 
         int id = OrientedVariant(held.Id, hit);
+        // flat redstone components need their supporting block to exist
+        if (BlockRegistry.IsFlat(id))
+        {
+            var def = BlockRegistry.Blocks[id];
+            var (ax, ay, az) = def.Shape is BlockShape.Lever or BlockShape.Button
+                ? BlockRegistry.AttachDir(def.Aux)
+                : (0, -1, 0);
+            if (!BlockRegistry.IsFullCube(_world.GetBlock(x + ax, y + ay, z + az)))
+            {
+                Toast?.Invoke("Needs a solid block to sit on!");
+                return;
+            }
+        }
         if (Mode == GameMode.Survival) _inventory.ConsumeSelected(); // creative: infinite
         _world.SetBlock(x, y, z, id);
         BlockPlaced?.Invoke();
@@ -368,6 +382,11 @@ public sealed class BlockInteraction
         var hit = Raycast();
         if (hit == null) return false;
         int id = _world.GetBlock(hit.X, hit.Y, hit.Z);
+        if (id == BlockId.CraftingTable)
+        {
+            CraftingOpened?.Invoke();
+            return true;
+        }
         switch (BlockRegistry.ShapeOf(id))
         {
             case BlockShape.DoorLower:
@@ -385,6 +404,39 @@ public sealed class BlockInteraction
             case BlockShape.Furnace:
                 ContainerOpened?.Invoke(hit.X, hit.Y, hit.Z, true);
                 return true;
+            case BlockShape.Lever:
+            {
+                var def = BlockRegistry.Blocks[id];
+                _world.SetBlock(hit.X, hit.Y, hit.Z, BlockRegistry.LeverVariant(def.Aux, !def.Open));
+                DoorToggled?.Invoke();
+                return true;
+            }
+            case BlockShape.Button:
+            {
+                var def = BlockRegistry.Blocks[id];
+                if (!def.Open) // the redstone sim schedules the release
+                {
+                    _world.SetBlock(hit.X, hit.Y, hit.Z, BlockRegistry.ButtonVariant(def.Aux, pressed: true));
+                    DoorToggled?.Invoke();
+                }
+                return true;
+            }
+            case BlockShape.Repeater:
+            {
+                var def = BlockRegistry.Blocks[id];
+                _world.SetBlock(hit.X, hit.Y, hit.Z,
+                    BlockRegistry.RepeaterVariant(def.Facing, def.Aux % 4 + 1, def.Open));
+                DoorToggled?.Invoke();
+                return true;
+            }
+            case BlockShape.Comparator:
+            {
+                var def = BlockRegistry.Blocks[id];
+                _world.SetBlock(hit.X, hit.Y, hit.Z,
+                    BlockRegistry.ComparatorVariant(def.Facing, def.Aux == 0, def.Open));
+                DoorToggled?.Invoke();
+                return true;
+            }
         }
         return false;
     }
@@ -403,7 +455,8 @@ public sealed class BlockInteraction
     }
 
     /// Breaking one door half silently removes the other (the broken half
-    /// already dropped the single door item).
+    /// already dropped the single door item). Pistons pair the same way:
+    /// breaking a head removes its extended base and vice versa.
     void RemoveOtherDoorHalf(int x, int y, int z, int broken)
     {
         var shape = BlockRegistry.ShapeOf(broken);
@@ -411,6 +464,22 @@ public sealed class BlockInteraction
             _world.SetBlock(x, y + 1, z, BlockId.Air);
         else if (shape == BlockShape.DoorUpper && BlockRegistry.ShapeOf(_world.GetBlock(x, y - 1, z)) == BlockShape.DoorLower)
             _world.SetBlock(x, y - 1, z, BlockId.Air);
+        else if (shape is BlockShape.PistonHead or BlockShape.Piston)
+        {
+            var (dx, dy, dz) = BlockRegistry.Facing6(BlockRegistry.FacingOf(broken));
+            if (shape == BlockShape.PistonHead)
+            {
+                int bx = x - dx, by = y - dy, bz = z - dz;
+                int baseId = _world.GetBlock(bx, by, bz);
+                if (BlockRegistry.ShapeOf(baseId) == BlockShape.Piston && BlockRegistry.IsOpen(baseId))
+                    _world.SetBlock(bx, by, bz, BlockId.Air);
+            }
+            else if (BlockRegistry.IsOpen(broken)
+                     && BlockRegistry.ShapeOf(_world.GetBlock(x + dx, y + dy, z + dz)) == BlockShape.PistonHead)
+            {
+                _world.SetBlock(x + dx, y + dy, z + dz, BlockId.Air);
+            }
+        }
     }
 
     /// The player's dominant horizontal look direction (0=N/-Z, 1=E, 2=S, 3=W).
@@ -452,8 +521,36 @@ public sealed class BlockInteraction
             case BlockShape.Chest:
             case BlockShape.Furnace:
                 return baseId + Opposite(PlayerFacing());
+            case BlockShape.Lever:
+                return BlockRegistry.LeverVariant(AttachFromHit(hit), on: false);
+            case BlockShape.Button:
+                return BlockRegistry.ButtonVariant(AttachFromHit(hit), pressed: false);
+            case BlockShape.Repeater:
+                return BlockRegistry.RepeaterVariant(PlayerFacing(), delay: 1, powered: false);
+            case BlockShape.Comparator:
+                return BlockRegistry.ComparatorVariant(PlayerFacing(), subtract: false, powered: false);
+            case BlockShape.Observer:
+                return BlockRegistry.ObserverVariant(Facing6TowardPlayer(), powered: false);
+            case BlockShape.Piston:
+                return BlockRegistry.PistonVariant(Facing6TowardPlayer(), extended: false,
+                    sticky: BlockRegistry.AuxOf(baseId) == 1);
             default:
                 return baseId;
         }
+    }
+
+    /// Lever/button mount face from the clicked face: top/bottom clicks give
+    /// a floor mount, wall clicks hang it on that wall.
+    static int AttachFromHit(RayHit hit) =>
+        hit.FaceY != 0 ? 0 : FacingIndex(-hit.FaceX, -hit.FaceZ) + 1;
+
+    /// 6-way facing pointing back at the player (pistons face their placer,
+    /// observers watch away over your shoulder — like Minecraft).
+    int Facing6TowardPlayer()
+    {
+        var d = _player.ViewDir;
+        if (d.Y < -0.65f) return 4; // looking down: face up toward the player
+        if (d.Y > 0.65f) return 5;
+        return Opposite(PlayerFacing());
     }
 }

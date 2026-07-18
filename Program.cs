@@ -114,6 +114,7 @@ sealed class Game : IDisposable
 
     GameWorld _world;
     WorldRenderer _worldRenderer;
+    RedstoneSim _redstone;
     readonly Frustum _frustum = new();
     Player _player;
     Inventory _inventory;
@@ -171,7 +172,35 @@ sealed class Game : IDisposable
         _window.Closing += () => { if (_world != null) SaveWorld(silent: true); }; // auto-save on quit
     }
 
-    public void Run() => _window.Run();
+    /// Any crash (a lost GPU device included) still tries to save the world
+    /// before the process dies, so a driver hiccup never costs progress.
+    public void Run()
+    {
+        try
+        {
+            _window.Run();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"Fatal error: {e.Message}");
+            if (e.Message.Contains("DeviceLost"))
+                Console.WriteLine("The GPU device was lost (driver reset/TDR). " +
+                    "If this happens often, try a lower render distance or updating the graphics driver.");
+            try
+            {
+                if (_world != null)
+                {
+                    SaveWorld(silent: true);
+                    Console.WriteLine($"Emergency save written for '{_worldName}'.");
+                }
+            }
+            catch (Exception saveEx)
+            {
+                Console.WriteLine($"Emergency save failed: {saveEx.Message}");
+            }
+            throw;
+        }
+    }
 
     // ------------------------------------------------------------- init
 
@@ -261,6 +290,12 @@ sealed class Game : IDisposable
             _sound.Tone(320, 0.06, 0.08);
             SetState(furnace ? GameState.FurnaceOpen : GameState.ChestOpen);
         };
+        _interaction.CraftingOpened += () =>
+        {
+            _hud.TableOpen = true; // unlock the advanced recipes for this panel
+            _sound.Tone(320, 0.06, 0.08);
+            SetState(GameState.InventoryOpen);
+        };
         _interaction.BlockBroken += (x, y, z, id) =>
         {
             _particles.Burst(x, y, z, BlockRegistry.Blocks[id].ParticleColor);
@@ -271,11 +306,16 @@ sealed class Game : IDisposable
         _interaction.ItemDropped += (x, y, z, id) => _drops.Spawn(x + 0.5f, y + 0.4f, z + 0.5f, id);
         _animals.AnimalPunched += a => _sound.Tone(a.Type == AnimalType.Chicken ? 720 : 340, 0.12, 0.15);
 
+        _redstone = new RedstoneSim(_world, _blockEntities.ComparatorSignal);
+        _redstone.ItemPopped += (x, y, z, id) => _drops.Spawn(x + 0.5f, y + 0.4f, z + 0.5f, id);
+
         if (save != null)
         {
             WorldSave.Apply(save, _world, _fluids, _blockEntities, _player, _inventory, _boats, _drops);
             SetMode(save.Mode);
             _timeOfDay = save.TimeOfDay;
+            // comparator strengths and pending timers aren't saved; re-derive
+            foreach (var (cx, cz, _) in save.Chunks) _redstone.RefreshChunk(cx, cz);
             ShowToast($"Loaded '{name}' (F5 saves, auto-saves on exit)");
         }
         else
@@ -365,6 +405,7 @@ sealed class Game : IDisposable
                 SetMode(_mode == GameMode.Survival ? GameMode.Creative : _mode == GameMode.Creative ? GameMode.Spectator : GameMode.Survival);
                 break;
             case Key.E when _state == GameState.Playing && _mode != GameMode.Spectator:
+                _hud.TableOpen = false; // hand crafting only from the pocket panel
                 SetState(GameState.InventoryOpen);
                 break;
             case Key.E or Key.Escape when _state is GameState.InventoryOpen or GameState.ChestOpen or GameState.FurnaceOpen:
@@ -589,13 +630,23 @@ sealed class Game : IDisposable
         if (_hud.HitRecipe(mx, my) is { } recipeIndex)
         {
             var recipe = ItemRegistry.Recipes[recipeIndex];
-            var result = Crafting.Craft(_inventory, recipe);
-            if (result == Crafting.Result.Full) ShowToast("Inventory full!");
-            else if (result == Crafting.Result.Ok)
+            if (!recipe.Hand && !_hud.TableOpen)
+            {
+                ShowToast("Needs a crafting table - craft one from 4 planks!");
+                return;
+            }
+            // shift-click crafts a whole batch (until ingredients or space run out)
+            bool shift = _keys.Contains(Key.ShiftLeft) || _keys.Contains(Key.ShiftRight);
+            int rounds = shift ? 64 : 1, made = 0;
+            var result = Crafting.Result.Ok;
+            while (rounds-- > 0 && (result = Crafting.Craft(_inventory, recipe)) == Crafting.Result.Ok)
+                made += recipe.Out.Count;
+            if (made > 0)
             {
                 _sound.Tone(520, 0.09, 0.1);
-                ShowToast($"Crafted {(recipe.Out.Count > 1 ? recipe.Out.Count + "x " : "")}{ItemRegistry.NameOf(recipe.Out.Id)}");
+                ShowToast($"Crafted {(made > 1 ? made + "x " : "")}{ItemRegistry.NameOf(recipe.Out.Id)}");
             }
+            else if (result == Crafting.Result.Full) ShowToast("Inventory full!");
             return;
         }
         // creative palette: clicking an entry puts a fresh stack on the cursor
@@ -705,6 +756,7 @@ sealed class Game : IDisposable
         _world = null;
         _terrain = null;
         _fluids = null;
+        _redstone = null;
         _animals = null;
         _boats = null;
         _drops = null;
@@ -794,6 +846,7 @@ sealed class Game : IDisposable
             _drops.Update(dt, _player, _inventory);
             _interaction.Update(dt, _mineHeld, _placeHeld);
             _fluids.Update(dt);
+            _redstone.Update(dt);
             _timeOfDay = (_timeOfDay + dt / DayLength) % 1f;
         }
         // furnaces keep smelting while their (or a chest's) panel is open

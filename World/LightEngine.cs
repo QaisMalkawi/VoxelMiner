@@ -211,6 +211,9 @@ public sealed class LightEngine
     /// Incrementally relights the world after a single block change.
     public void OnBlockChanged(int gx, int gy, int gz, int oldId, int newId)
     {
+        // light only sees opacity and emission; swaps that keep both (dust
+        // power levels, lever flips, repeater states) cost nothing
+        if (Opacity[oldId & 0xFF] == Opacity[newId & 0xFF] && Emission[oldId & 0xFF] == Emission[newId & 0xFF]) return;
         int cx = FloorDiv(gx, ChunkSize), cz = FloorDiv(gz, ChunkSize);
         if (!_maps.ContainsKey((cx, cz))) return;
         _touched.Clear();

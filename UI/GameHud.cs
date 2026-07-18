@@ -49,6 +49,10 @@ public sealed class GameHud
         Core.BlockId.RedSand, Core.BlockId.Terracotta, Core.BlockId.TerracottaRed,
         Core.BlockId.Mycelium, Core.BlockId.MushroomCap, Core.BlockId.MushroomStem,
         Core.BlockId.Fence, Core.BlockId.Glass,
+        Core.BlockId.RedstoneOre, Core.BlockId.Dust, Core.BlockId.Lever, Core.BlockId.Button,
+        Core.BlockId.Repeater, Core.BlockId.Comparator, Core.BlockId.Observer,
+        Core.BlockId.Piston, Core.BlockId.Piston + 12, // sticky piston
+        Core.BlockId.Honey, Core.BlockId.Slime, Core.BlockId.CraftingTable,
     };
 
     float _screenW, _screenH;
@@ -155,9 +159,13 @@ public sealed class GameHud
 
     // ------------------------------------------------------------- inventory panel
 
+    /// Opened via a crafting table: the advanced recipes unlock. The pocket
+    /// (E) panel offers only hand recipes.
+    public bool TableOpen;
+
     float BottomSectionH() => Mode == GameMode.Creative
         ? MathF.Ceiling(PaletteIds.Length / 9f) * (Slot + Gap)
-        : ItemRegistry.Recipes.Length * (RecipeRowH + 3);
+        : MathF.Ceiling(ItemRegistry.Recipes.Length / 9f) * (Slot + Gap);
 
     (float X, float Y) PanelOrigin()
     {
@@ -184,8 +192,7 @@ public sealed class GameHud
     (float X, float Y, float W, float H) RecipeRect(int index)
     {
         var (px, _) = PanelOrigin();
-        float w = 9 * Slot + 8 * Gap;
-        return (px + 12, BottomSectionY() + index * (RecipeRowH + 3), w, RecipeRowH);
+        return (px + 12 + index % 9 * (Slot + Gap), BottomSectionY() + index / 9 * (Slot + Gap), Slot, Slot);
     }
 
     (float X, float Y, float W, float H) PaletteRect(int index)
@@ -242,36 +249,79 @@ public sealed class GameHud
         }
     }
 
+    static readonly Vector4 CraftableGreen = new(0.35f, 0.9f, 0.4f, 0.8f);
+    static readonly Vector4 LockedOrange = new(1f, 0.65f, 0.25f, 1f);
+
+    /// Recipe grid: one cell per recipe (green border = craftable now, table
+    /// badge = needs a crafting table). Hover shows a tooltip with the
+    /// ingredients as have/need; click crafts one, shift-click crafts a batch.
     void DrawRecipes(float mouseX, float mouseY)
     {
         var (px, _) = PanelOrigin();
         var (_, ry, _, _) = RecipeRect(0);
-        _font.Draw(Batch, "Crafting", px + 12, ry - 20, White);
+        _font.Draw(Batch, TableOpen ? "Crafting Table" : "Crafting  (advanced recipes need a table)",
+            px + 12, ry - 20, White);
 
+        int hovered = -1;
         for (int i = 0; i < ItemRegistry.Recipes.Length; i++)
         {
             var recipe = ItemRegistry.Recipes[i];
             var r = RecipeRect(i);
-            bool affordable = Crafting.CanCraft(_inventory, recipe);
+            bool locked = !recipe.Hand && !TableOpen;
+            bool affordable = !locked && Crafting.CanCraft(_inventory, recipe);
             bool hover = mouseX >= r.X && mouseX < r.X + r.W && mouseY >= r.Y && mouseY < r.Y + r.H;
-            float alpha = affordable ? 1f : 0.35f;
+            if (hover) hovered = i;
 
-            Batch.SolidQuad(_white, r.X, r.Y, r.W, r.H, new Vector4(1, 1, 1, hover && affordable ? 0.14f : 0.06f));
-            _icons.Draw(Batch, recipe.Out.Id, r.X + 4, r.Y + 3, 20, alpha);
-            string name = (recipe.Out.Count > 1 ? recipe.Out.Count + "x " : "") + ItemRegistry.NameOf(recipe.Out.Id);
-            _font.Draw(Batch, name, r.X + 30, r.Y + 5, White with { W = alpha });
+            Batch.SolidQuad(_white, r.X, r.Y, r.W, r.H, hover ? SlotSelBg : SlotBg);
+            DrawBorder(r.X, r.Y, r.W, r.H, 2, hover ? Yellow : affordable ? CraftableGreen : BorderCol);
+            _icons.Draw(Batch, recipe.Out.Id, r.X + 8, r.Y + 8, 32, locked ? 0.3f : affordable ? 1f : 0.5f);
+            if (recipe.Out.Count > 1)
+                _font.Draw(Batch, recipe.Out.Count.ToString(), r.X + r.W - 16, r.Y + r.H - 18, White);
+            if (locked) // badge: this one needs the crafting table
+                _icons.Draw(Batch, Core.BlockId.CraftingTable, r.X + r.W - 15, r.Y + 3, 12, 0.9f);
+        }
 
-            float ix = r.X + r.W - 8;
-            for (int k = recipe.In.Length - 1; k >= 0; k--)
-            {
-                var (id, n) = recipe.In[k];
-                string count = n.ToString();
-                ix -= _font.Measure(count);
-                _font.Draw(Batch, count, ix, r.Y + 5, White with { W = alpha });
-                ix -= 20;
-                _icons.Draw(Batch, id, ix, r.Y + 3, 18, alpha);
-                ix -= 8;
-            }
+        if (hovered >= 0) DrawRecipeTooltip(ItemRegistry.Recipes[hovered], mouseX, mouseY);
+    }
+
+    /// Floating ingredient card: output name, then each ingredient with the
+    /// player's have/need count (red when short), plus the table requirement.
+    void DrawRecipeTooltip(Recipe recipe, float mouseX, float mouseY)
+    {
+        bool locked = !recipe.Hand && !TableOpen;
+        string title = (recipe.Out.Count > 1 ? recipe.Out.Count + "x " : "") + ItemRegistry.NameOf(recipe.Out.Id);
+        const float lineH = 22, pad = 10;
+        float w = MathF.Max(_font.Measure(title) + 20, 190);
+        foreach (var (id, n) in recipe.In)
+            w = MathF.Max(w, 30 + _font.Measure($"{_inventory.CountItem(id)}/{n}  {ItemRegistry.NameOf(id)}") + 20);
+        float h = pad * 2 + lineH + recipe.In.Length * lineH + (locked ? lineH : 0)
+                + (Mode == GameMode.Survival ? lineH : 0);
+
+        float tx = MathF.Min(mouseX + 16, _screenW - w - 4);
+        float ty = MathF.Min(mouseY + 16, _screenH - h - 4);
+        Batch.SolidQuad(_white, tx, ty, w, h, new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+        DrawBorder(tx, ty, w, h, 2, new Vector4(1, 1, 1, 0.35f));
+
+        float y = ty + pad;
+        _icons.Draw(Batch, recipe.Out.Id, tx + pad, y, 18);
+        _font.Draw(Batch, title, tx + pad + 24, y + 2, White);
+        y += lineH;
+        foreach (var (id, n) in recipe.In)
+        {
+            int have = _inventory.CountItem(id);
+            var color = have >= n ? new Vector4(0.55f, 0.95f, 0.55f, 1) : new Vector4(0.95f, 0.45f, 0.4f, 1);
+            _icons.Draw(Batch, id, tx + pad + 4, y, 16);
+            _font.Draw(Batch, $"{have}/{n}  {ItemRegistry.NameOf(id)}", tx + pad + 26, y + 1, color);
+            y += lineH;
+        }
+        if (locked)
+        {
+            _font.Draw(Batch, "Needs a crafting table", tx + pad, y + 1, LockedOrange);
+            y += lineH;
+        }
+        else if (Mode == GameMode.Survival)
+        {
+            _font.Draw(Batch, "Click: craft   Shift: batch", tx + pad, y + 1, new Vector4(1, 1, 1, 0.55f));
         }
     }
 
