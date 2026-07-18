@@ -19,9 +19,10 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 
-  <!-- Reuse the PNG assets baked by tools/generate-textures.mjs -->
+  <!-- One PNG per texture under assets/ (blocks, mobs, icons). Regenerate the
+       generated ones via the game's bake-textures CLI flag. -->
   <ItemGroup>
-    <Content Include="..\assets\**\*.png" Link="assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\**\*.png" Link="assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <!-- robocopy exit codes 0-7 all mean success -->

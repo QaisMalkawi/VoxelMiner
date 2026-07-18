@@ -15,7 +15,8 @@ public sealed record AnimalPart(PartKind Kind, Vector3 Size, Vector3 LocalPos, V
 
 public sealed record AnimalDef(float Speed, float Scale, AnimalPart[] Parts);
 
-/// Tile indices refer to assets/textures/animals.png (see tools/generate-textures.mjs).
+/// Tile indices refer to the mob atlas (assets/textures/mobs/*.png, packed by
+/// MobTextures in the order of MobTextures.Names).
 public static class AnimalDefs
 {
     static AnimalPart[] BuildParts(Vector3 body, float bodyY, Vector3 head, float legH, float legW,

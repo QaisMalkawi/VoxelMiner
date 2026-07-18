@@ -18,6 +18,18 @@ public static class Program
 {
     public static void Main(string[] args)
     {
+        // dev tool: regenerate every swappable texture PNG into an assets tree
+        // (defaults to the running copy) and exit. No GPU needed.
+        int bakeIdx = Array.IndexOf(args, "--bake-textures");
+        if (bakeIdx >= 0)
+        {
+            string dir = bakeIdx + 1 < args.Length && !args[bakeIdx + 1].StartsWith("--")
+                ? args[bakeIdx + 1]
+                : Path.Combine(AppContext.BaseDirectory, "assets");
+            TextureBaker.BakeAll(dir);
+            return;
+        }
+
         // world seed: --seed <n> reproduces a world; autotest pins one so
         // its scenes are deterministic; otherwise each launch rolls a new one
         int seedIdx = Array.IndexOf(args, "--seed");
@@ -210,18 +222,21 @@ sealed class Game : IDisposable
         _renderer = new Renderer(_ctx);
 
         string assets = Path.Combine(AppContext.BaseDirectory, "assets");
-        var (atlasPixels, atlasW, atlasH) = PngLoader.Load(Path.Combine(assets, "textures", "atlas.png"));
-        (atlasPixels, atlasW) = TextureGen.ExtendAtlas(atlasPixels, atlasW, atlasH); // + torch, water tiles
-        _atlas = _renderer.RegisterTexture(new GpuTexture(_ctx, atlasPixels, atlasW, atlasH));
+        // every texture is one PNG under assets/, packed into atlases here;
+        // missing files self-heal from the procedural source (TextureGen)
+        var (blockHandle, _, blockTiles) = BlockTextures.Build(_renderer, assets);
+        _atlas = blockHandle;
+        if (blockTiles != ChunkMesher.AtlasTiles)
+            throw new InvalidOperationException($"block atlas has {blockTiles} tiles, mesher expects {ChunkMesher.AtlasTiles}");
         _white = _renderer.RegisterTexture(new GpuTexture(_ctx, new byte[] { 255, 255, 255, 255 }, 1, 1, srgb: false));
         _icons = new IconAtlas(_renderer, Path.Combine(assets, "icons"));
         _font = new FontAtlas(_renderer);
         _cube = Primitives.CreateShadedCube(_ctx);
         _lineCube = Primitives.CreateLineCube(_ctx);
 
-        var (animalPixels, animalW, animalH) = PngLoader.Load(Path.Combine(assets, "textures", "animals.png"));
-        _animalTex = _renderer.RegisterTexture(new GpuTexture(_ctx, animalPixels, animalW, animalH));
-        _animalMeshes = new CubeMeshCache(_ctx, animalW / 16); // one row of 16px tiles
+        var (mobHandle, _, mobTiles) = MobTextures.Build(_renderer, assets);
+        _animalTex = mobHandle;
+        _animalMeshes = new CubeMeshCache(_ctx, mobTiles); // one row of 16px tiles
         _blockCubes = new CubeMeshCache(_ctx, ChunkMesher.AtlasTiles);
 
         _player = new Player();
